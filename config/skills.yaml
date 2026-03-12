@@ -1,0 +1,91 @@
+skills:
+  react:
+    tech_stack: react
+    description: "React functional components, hooks, state management, and testing"
+    prompt_file: "skills/react.md"
+    file_patterns:
+      - "*.jsx"
+      - "*.tsx"
+      - "src/components/**"
+    keywords:
+      - react
+      - reactjs
+      - react.js
+      - jsx
+      - react component
+      - react hook
+      - useState
+      - useEffect
+      - redux
+      - zustand
+
+  nextjs:
+    tech_stack: nextjs
+    description: "Next.js App Router, SSR/SSG/ISR, API routes, and middleware"
+    prompt_file: "skills/nextjs.md"
+    file_patterns:
+      - "next.config.*"
+      - "app/layout.*"
+      - "app/page.*"
+      - "pages/**"
+    keywords:
+      - nextjs
+      - next.js
+      - app router
+      - pages router
+      - vercel
+      - server component
+
+  typescript:
+    tech_stack: typescript
+    description: "TypeScript strict typing, generics, utility types, and patterns"
+    prompt_file: "skills/typescript.md"
+    file_patterns:
+      - "*.ts"
+      - "*.tsx"
+      - "tsconfig.json"
+      - "*.d.ts"
+    keywords:
+      - typescript
+      - tsx
+      - type safety
+      - tsconfig
+      - interface
+      - generic type
+
+  php:
+    tech_stack: php
+    description: "Modern PHP 8.x, PSR standards, Composer, and PHPUnit testing"
+    prompt_file: "skills/php.md"
+    file_patterns:
+      - "*.php"
+      - "composer.json"
+      - "composer.lock"
+    keywords:
+      - php
+      - composer
+      - psr
+      - phpunit
+      - phpstan
+      - symfony
+
+  laravel:
+    tech_stack: laravel
+    description: "Laravel Eloquent ORM, controllers, migrations, jobs, and testing"
+    prompt_file: "skills/laravel.md"
+    file_patterns:
+      - "artisan"
+      - "app/Http/Controllers/**"
+      - "app/Models/**"
+      - "database/migrations/**"
+      - "resources/views/**"
+      - "routes/web.php"
+      - "routes/api.php"
+    keywords:
+      - laravel
+      - eloquent
+      - artisan
+      - blade
+      - sanctum
+      - livewire
+      - inertia

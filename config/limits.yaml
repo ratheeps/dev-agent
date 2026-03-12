@@ -1,0 +1,18 @@
+cost:
+  daily_ceiling_usd: 50.0
+  alert_threshold_pct: 80
+
+timeouts:
+  orchestrator_minutes: 480
+  worker_minutes: 30
+  mcp_call_seconds: 30
+
+rate_limits:
+  jira_rpm: 60
+  github_rpm: 60
+  figma_rpm: 30
+  teams_rpm: 30
+
+workers:
+  max_concurrent: 5
+  max_per_ticket: 3

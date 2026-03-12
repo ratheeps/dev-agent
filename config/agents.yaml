@@ -1,0 +1,40 @@
+orchestrator:
+    model: claude-opus-4-6
+    bedrock_model_id: us.anthropic.claude-opus-4-6-20250609-v1:0
+    role: planning, delegation, review
+    max_workers: 5
+    timeout_minutes: 480 # 8 hours
+    max_tokens: 8192
+
+worker:
+    model: claude-sonnet-4-6
+    bedrock_model_id: us.anthropic.claude-sonnet-4-6-20250514-v1:0
+    role: implementation, testing, commit
+    timeout_minutes: 30
+    retry_count: 1
+    max_tokens: 4096
+
+bedrock:
+    region: us-east-1
+    max_retries: 3
+    temperature: 0.0
+
+# Backend selection: "bedrock" | "claude-agent-sdk"
+# "bedrock" uses the AWS Bedrock converse API (requires AWS credentials).
+# "claude-agent-sdk" uses the Claude Agent SDK for autonomous agentic operation
+#   (requires ANTHROPIC_API_KEY and the claude-agent-sdk package).
+backend: claude-agent-sdk
+
+claude_agent_sdk:
+    max_turns_orchestrator: 50 # Orchestrator may need many turns for complex planning
+    max_turns_worker: 25 # Workers: enough turns for full implementation + tests
+    permission_mode: acceptEdits # "acceptEdits" for autonomous | "prompt" for supervised
+    allowed_tools:
+        orchestrator:
+            - Read
+            - Bash
+        worker:
+            - Read
+            - Write
+            - Bash
+    cwd: /workspace # Working directory for agent file operations

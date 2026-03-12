@@ -1,0 +1,38 @@
+# MCP Server Configuration
+# ========================
+# Defines connection parameters for each MCP server used by the agent system.
+# Auth tokens / secrets should be supplied via environment variables (referenced
+# in the ``env`` mapping) rather than hard-coded here.
+
+servers:
+  atlassian:
+    name: atlassian
+    url: "https://mcp.atlassian.com/v1"
+    enabled: true
+    env:
+      ATLASSIAN_SITE_URL: "${ATLASSIAN_SITE_URL}"
+      ATLASSIAN_USER_EMAIL: "${ATLASSIAN_USER_EMAIL}"
+      ATLASSIAN_API_TOKEN: "${ATLASSIAN_API_TOKEN}"
+
+  github:
+    name: github
+    url: "https://mcp.github.com/v1"
+    enabled: true
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+  figma:
+    name: figma
+    url: "https://mcp.figma.com/v1"
+    enabled: true
+    env:
+      FIGMA_ACCESS_TOKEN: "${FIGMA_ACCESS_TOKEN}"
+
+  teams:
+    name: teams
+    url: "https://mcp.teams.microsoft.com/v1"
+    enabled: true
+    env:
+      TEAMS_TENANT_ID: "${TEAMS_TENANT_ID}"
+      TEAMS_CLIENT_ID: "${TEAMS_CLIENT_ID}"
+      TEAMS_CLIENT_SECRET: "${TEAMS_CLIENT_SECRET}"

@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "atlassian": {
+      "type": "sse",
+      "url": "https://mcp.atlassian.com/v1/sse"
+    },
+    "figma": {
+      "type": "http",
+      "url": "https://mcp.figma.com/mcp"
+    },
+    "github": {
+      "type": "docker",
+      "image": "ghcr.io/github/github-mcp-server",
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PAT}"
+      }
+    },
+    "teams": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./node_modules/@mcp/teams-connector/dist/index.js"],
+      "env": {
+        "MICROSOFT_APP_ID": "${MS_APP_ID}",
+        "MICROSOFT_APP_PASSWORD": "${MS_APP_PASSWORD}",
+        "MICROSOFT_TENANT_ID": "${MS_TENANT_ID}"
+      }
+    }
+  }
+}
