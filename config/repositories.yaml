@@ -1,0 +1,119 @@
+infra:
+  local_infra_path: /home/ratheepan/workspace/giftbee/local-infra
+  task_binary: task  # Taskfile CLI
+  host_entries:
+    - "127.0.0.1 wallet.giftbee.test"
+    - "127.0.0.1 myaccount.giftbee.test"
+    - "127.0.0.1 admin.giftbee.test"
+    - "127.0.0.1 pim.giftbee.test"
+    - "127.0.0.1 explore.giftbee.test"
+
+shared_services:
+  - name: mysql
+    task_cmd: base:up
+    health_check: "docker compose exec mysql mysqladmin ping -h localhost"
+    port: 3306
+  - name: redis
+    task_cmd: base:up
+    health_check: "docker compose exec redis redis-cli ping"
+    port: 6379
+  - name: mailpit
+    task_cmd: base:up
+    port: 1025
+  - name: nginx
+    task_cmd: base:up
+    port: 80
+
+repositories:
+  wallet-service:
+    scm: bitbucket
+    org: giftbee
+    base_branch: dev
+    tech_stacks: [php, laravel, react, typescript]
+    jira_labels: [wallet, api, backend, wallet-service]
+    jira_components: [Wallet Service, API, Backend]
+    local_path: /home/ratheepan/workspace/giftbee/wallet-service
+    dev_url: https://wallet.giftbee.test
+    task_up: wallet-service:up
+    task_down: wallet-service:down
+    task_migrate: wallet-service:migrate
+    test_cmd: "docker compose exec wallet_service php artisan test"
+    env_template: .env.example
+    required_env_vars: [DB_HOST, DB_DATABASE, REDIS_HOST, APP_URL]
+    depends_on_services: [mysql, redis, mailpit]
+    depends_on_repos: [pim]
+
+  store-front:
+    scm: bitbucket
+    org: giftbee
+    base_branch: main
+    tech_stacks: [nextjs, react, typescript]
+    jira_labels: [storefront, store-front, frontend, customer, myaccount]
+    jira_components: [Store Front, Customer Portal, My Account]
+    local_path: /home/ratheepan/workspace/giftbee/store-front
+    dev_url: https://myaccount.giftbee.test
+    task_up: store-front:up
+    task_down: store-front:down
+    test_cmd: "docker compose exec store-front npm test"
+    e2e_test_cmd: "docker compose exec store-front npm run test:e2e"
+    e2e_test_dir: tests/e2e/specs
+    e2e_page_objects_dir: tests/e2e/pages
+    env_template: .env.example
+    env_test_template: .env.test.example
+    required_env_vars: [NEXT_APP_API_BASE_URL, NEXT_AUTH_ENABLED]
+    depends_on_services: [mysql, redis, nginx]
+    depends_on_repos: [wallet-service]
+
+  admin-portal:
+    scm: bitbucket
+    org: giftbee
+    base_branch: dev
+    tech_stacks: [nextjs, react, typescript]
+    jira_labels: [admin, corporate, backoffice, portal, admin-portal]
+    jira_components: [Admin Portal, Corporate Portal, Backoffice]
+    local_path: /home/ratheepan/workspace/giftbee/admin-portal
+    dev_url: https://admin.giftbee.test
+    task_up: admin-portal:up
+    task_down: admin-portal:down
+    test_cmd: "docker compose exec admin-portal npm test"
+    e2e_test_cmd: "docker compose exec admin-portal npm run test:e2e"
+    e2e_test_dir: tests/e2e/specs
+    e2e_page_objects_dir: tests/e2e/pages
+    env_template: .env.example
+    env_test_template: .env.testing
+    required_env_vars: [NEXT_APP_API_BASE_URL, NEXT_AUTH_ENABLED]
+    depends_on_services: [mysql, redis, nginx]
+    depends_on_repos: [wallet-service]
+
+  pim:
+    scm: bitbucket
+    org: giftbee
+    base_branch: dev
+    tech_stacks: [php]
+    jira_labels: [pim, catalog, pimcore, product]
+    jira_components: [PIM, Product Catalog, Pimcore]
+    local_path: /home/ratheepan/workspace/giftbee/pim
+    dev_url: http://pim.giftbee.test
+    task_up: pim:up
+    task_down: pim:down
+    test_cmd: "docker compose exec pim vendor/bin/codecept run"
+    env_template: .env.example
+    required_env_vars: [PIMCORE_INSTALL_MYSQL_HOST_SOCKET, PIMCORE_INSTALL_MYSQL_DATABASE]
+    depends_on_services: [mysql, redis]
+    depends_on_repos: []
+
+  local-infra:
+    scm: bitbucket
+    org: giftbee
+    base_branch: dev
+    tech_stacks: []
+    jira_labels: [infra, docker, devops]
+    jira_components: [Infrastructure, DevOps]
+    local_path: /home/ratheepan/workspace/giftbee/local-infra
+    dev_url: null
+    task_up: base:up
+    task_down: base:down
+    env_template: .env.example
+    required_env_vars: [WALLET_SERVICE_DIR, STORE_FRONT_DIR, ADMIN_PORTAL, PIM_DIR]
+    depends_on_services: []
+    depends_on_repos: []

@@ -20,6 +20,11 @@ from src.agents.registry import AgentRegistry
 from src.integrations.mcp_manager import MCPManager
 from src.memory.client import MemoryClient
 from src.memory.config import MemoryConfig
+from src.repositories.env_manager import EnvFileManager
+from src.repositories.environment import DevEnvironmentManager
+from src.repositories.hosts import HostManager
+from src.repositories.registry import RepoRegistry, get_default_repo_registry
+from src.repositories.workspace import WorkspaceManager
 from src.workflows.pipeline import WorkflowPipeline
 
 logger = logging.getLogger(__name__)
@@ -42,6 +47,12 @@ class AgentCoreEntrypoint:
         self._registry: AgentRegistry | None = None
         self._orchestrator: Orchestrator | None = None
         self._shutdown_event = asyncio.Event()
+        # Repository infrastructure
+        self._repo_registry: RepoRegistry | None = None
+        self._workspace_manager: WorkspaceManager | None = None
+        self._dev_env_manager: DevEnvironmentManager | None = None
+        self._host_manager: HostManager | None = None
+        self._env_file_manager: EnvFileManager | None = None
 
     async def initialize(self, mcp_call: Any = None) -> None:
         """Set up all components.
@@ -95,11 +106,29 @@ class AgentCoreEntrypoint:
 
         # Agent infrastructure — pass both clients + MCP to all agents
         self._message_bus = MessageBus()
+
+        # Repository infrastructure
+        self._repo_registry = get_default_repo_registry()
+        infra_cfg = self._repo_registry.get_infra_config()
+        self._workspace_manager = WorkspaceManager()
+        self._host_manager = HostManager(infra_cfg)
+        self._env_file_manager = EnvFileManager(infra_cfg)
+        self._dev_env_manager = DevEnvironmentManager(
+            infra_config=infra_cfg,
+            shared_services=self._repo_registry.get_shared_services(),
+            registry=self._repo_registry,
+        )
+
         self._registry = AgentRegistry(
             message_bus=self._message_bus,
             bedrock_client=self._bedrock_client,
             claude_sdk_client=self._claude_sdk_client,
             mcp_call=mcp_call or _default_mcp_call,
+            repo_registry=self._repo_registry,
+            workspace_manager=self._workspace_manager,
+            dev_env_manager=self._dev_env_manager,
+            host_manager=self._host_manager,
+            env_file_manager=self._env_file_manager,
         )
         self._orchestrator = Orchestrator(
             registry=self._registry,
@@ -107,6 +136,7 @@ class AgentCoreEntrypoint:
             bedrock_client=self._bedrock_client,
             claude_sdk_client=self._claude_sdk_client,
             mcp_call=mcp_call or _default_mcp_call,
+            repo_registry=self._repo_registry,
         )
 
         # Seed semantic memory with golden rules

@@ -12,6 +12,8 @@ from typing import Any
 
 from src.integrations.atlassian.jira_client import JiraClient
 from src.integrations.mcp_manager import MCPManager
+from src.repositories.registry import RepoRegistry, get_default_repo_registry
+from src.repositories.router import RepoRouter
 from src.schemas.atlassian import ConfluencePage, JiraIssue
 from src.schemas.skill import DetectionResult
 from src.schemas.task import Task, TaskStatus
@@ -35,11 +37,18 @@ class JiraIngestionHandler:
 
     Gathers the issue itself, its comments, linked Confluence documentation,
     and Figma design references into a single ``Task`` with populated context.
+    Also routes the ticket to the correct target repository/repositories.
     """
 
-    def __init__(self, mcp_manager: MCPManager) -> None:
+    def __init__(
+        self,
+        mcp_manager: MCPManager,
+        repo_registry: RepoRegistry | None = None,
+    ) -> None:
         self._mcp = mcp_manager
         self._skill_detector = SkillDetector()
+        self._repo_registry = repo_registry or get_default_repo_registry()
+        self._repo_router = RepoRouter(self._repo_registry)
 
     @property
     def _jira(self) -> JiraClient:
@@ -91,6 +100,29 @@ class JiraIngestionHandler:
                 [s.value for s in detection.detected_stacks],
             )
 
+        # Route ticket to target repositories
+        jira_dict: dict[str, Any] = {
+            "labels": issue.fields.labels,
+            "components": [c.get("name", "") for c in (issue.fields.components or [])],
+            "summary": issue.fields.summary,
+            "description": issue.fields.description or "",
+        }
+        detected_stacks = [s.value for s in detection.detected_stacks]
+        route_results = self._repo_router.route(jira_dict, detected_stacks)
+        if route_results:
+            context["target_repositories"] = [
+                {"repo": r.repo_name, "confidence": r.confidence}
+                for r in route_results
+            ]
+            context["repository"] = route_results[0].repo_name
+            logger.info(
+                "Routed %s to repos: %s",
+                jira_key,
+                [r.repo_name for r in route_results],
+            )
+        else:
+            logger.warning("Could not route %s to any repo", jira_key)
+
         task = Task(
             jira_key=jira_key,
             title=issue.fields.summary,
@@ -103,6 +135,7 @@ class JiraIngestionHandler:
             context={
                 "requirements": requirements,
                 "labels": issue.fields.labels,
+                "components": [c.get("name", "") for c in (issue.fields.components or [])],
                 "issue_type": (
                     issue.fields.issue_type.name if issue.fields.issue_type else "Task"
                 ),

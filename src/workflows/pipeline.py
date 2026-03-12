@@ -9,6 +9,7 @@ from typing import Any
 
 from src.agents.orchestrator import Orchestrator
 from src.integrations.mcp_manager import MCPManager
+from src.integrations.scm.github_adapter import GitHubSCMAdapter
 from src.memory.client import MemoryClient
 from src.schemas.task import Task, TaskStatus
 from src.workflows.code_implementation import CodeImplementationHandler
@@ -230,7 +231,7 @@ class WorkflowPipeline:
             task=self._context.task,
             plan=self._context.plan,
             branch=self._context.branch_name,
-            github_client=self._mcp.github,
+            scm_client=GitHubSCMAdapter(client=self._mcp.github, org="giftbee"),
             jira_client=self._mcp.jira,
             teams_client=self._mcp.teams,
         )

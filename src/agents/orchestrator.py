@@ -12,6 +12,7 @@ from src.agents.bedrock_client import BedrockClient
 from src.agents.claude_sdk_client import ClaudeSDKClient
 from src.agents.communication import MessageBus
 from src.agents.registry import AgentRegistry
+from src.repositories.registry import RepoRegistry, get_default_repo_registry
 from src.schemas.message import MessageType
 from src.schemas.plan import AgentType, Plan, PlanStep
 from src.schemas.skill import DetectionResult, SkillSet, TechStack
@@ -45,6 +46,7 @@ class Orchestrator(BaseAgent):
         bedrock_client: BedrockClient | None = None,
         claude_sdk_client: ClaudeSDKClient | None = None,
         mcp_call: Any | None = None,
+        repo_registry: RepoRegistry | None = None,
     ) -> None:
         system_prompt = load_prompt(_ORCHESTRATOR_PROMPT_FILE)
         super().__init__(
@@ -63,6 +65,7 @@ class Orchestrator(BaseAgent):
         self._worker_results: dict[str, dict[str, Any]] = {}
         self._skill_detector = SkillDetector()
         self._skill_composer = SkillComposer(get_default_registry())
+        self._repo_registry = repo_registry or get_default_repo_registry()
 
     # ------------------------------------------------------------------
     # Primary workflow
@@ -216,15 +219,28 @@ class Orchestrator(BaseAgent):
                 skill_set = get_default_registry().get_skills(stacks)
                 skill_context = self._skill_composer.compose_planning_context(skill_set)
 
+        # Build multi-repo context for the planning prompt
+        target_repos = task.context.get("target_repositories", [])
+        repo_context = ""
+        if target_repos:
+            repo_names = [r["repo"] if isinstance(r, dict) else r for r in target_repos]
+            repo_context = (
+                f"\n**Target Repositories:** {', '.join(repo_names)}\n"
+                "Group subtasks by repository. Backend repos (wallet-service, pim) "
+                "should precede frontend repos (store-front, admin-portal).\n"
+            )
+
         planning_prompt = (
             f"Analyze this Jira ticket and create a structured implementation plan.\n\n"
             f"**Ticket:** {task.jira_key} — {task.title}\n"
             f"**Description:** {task.description}\n"
             f"**Context:** {json.dumps(task.context, default=str, indent=2)}\n"
             f"{skill_context}\n"
+            f"{repo_context}\n"
             f"Respond with a JSON object containing:\n"
             f"- \"subtasks\": array of objects with: id, description, file_paths (array), "
-            f"dependencies (array of subtask ids), complexity (low/medium/high)\n"
+            f"dependencies (array of subtask ids), complexity (low/medium/high), "
+            f"repository (repo name this subtask belongs to)\n"
             f"- \"estimated_complexity\": overall complexity (low/medium/high)\n"
             f"- \"context_summary\": one-paragraph summary\n\n"
             f"Return ONLY valid JSON, no markdown fences."
@@ -314,6 +330,31 @@ class Orchestrator(BaseAgent):
                 subtask = self._step_to_subtask(step, task.id)
                 task.subtasks.append(subtask)
 
+                # Attach repo config to subtask context for worker dev loop
+                step_repo = getattr(step, "repository", None) or task.context.get("repository", "")
+                if step_repo:
+                    try:
+                        repo_cfg = self._repo_registry.get(step_repo)
+                        subtask_context: dict[str, Any] = {
+                            "repo_config": {
+                                "name": repo_cfg.name,
+                                "local_path": str(repo_cfg.local_path),
+                                "dev_url": repo_cfg.dev_url,
+                                "base_branch": repo_cfg.base_branch,
+                                "tech_stacks": repo_cfg.tech_stacks,
+                                "test_cmd": repo_cfg.test_cmd,
+                                "e2e_test_cmd": repo_cfg.e2e_test_cmd,
+                            },
+                            "repository": step_repo,
+                            "dev_url": repo_cfg.dev_url or "",
+                        }
+                        # Merge with task context
+                        merged_context = {**task.context, **subtask_context}
+                    except KeyError:
+                        merged_context = task.context
+                else:
+                    merged_context = task.context
+
                 worker = await self._registry.spawn_worker(subtask, skill_set=skill_set)
                 worker_ids.append(worker.agent_id)
 
@@ -323,7 +364,7 @@ class Orchestrator(BaseAgent):
                     message_type=MessageType.TASK_ASSIGNMENT,
                     payload={
                         "subtask": subtask.model_dump(mode="json"),
-                        "context": task.context,
+                        "context": merged_context,
                     },
                 )
                 await self.send_message(assignment)

@@ -7,7 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Jira
 # ---------------------------------------------------------------------------
@@ -76,6 +75,7 @@ class JiraIssueFields(BaseModel):
     assignee: JiraUser | None = None
     reporter: JiraUser | None = None
     labels: list[str] = Field(default_factory=list)
+    components: list[dict[str, Any]] = Field(default_factory=list)
     parent: dict[str, Any] | None = None
     created: datetime | None = None
     updated: datetime | None = None

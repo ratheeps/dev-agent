@@ -10,6 +10,11 @@ from src.agents.base import BaseAgent, load_prompt
 from src.agents.bedrock_client import BedrockClient
 from src.agents.claude_sdk_client import ClaudeSDKClient
 from src.integrations.mcp_manager import MCPManager
+from src.repositories.env_manager import EnvFileManager
+from src.repositories.environment import DevEnvironmentManager
+from src.repositories.hosts import HostManager
+from src.repositories.registry import RepoRegistry, get_default_repo_registry
+from src.repositories.workspace import WorkspaceManager
 from src.schemas.message import MessageType
 from src.schemas.playwright import (
     BrowserSnapshot,
@@ -18,6 +23,7 @@ from src.schemas.playwright import (
     UIAssertion,
     UIVerificationResult,
 )
+from src.schemas.repository import RepositoryConfig
 from src.schemas.skill import SkillSet, TechStack
 from src.schemas.task import SubTask, Task, TaskStatus
 from src.skills.composer import SkillComposer
@@ -53,6 +59,11 @@ class Worker(BaseAgent):
         claude_sdk_client: ClaudeSDKClient | None = None,
         mcp_call: Any | None = None,
         skill_set: SkillSet | None = None,
+        repo_registry: RepoRegistry | None = None,
+        workspace_manager: WorkspaceManager | None = None,
+        dev_env_manager: DevEnvironmentManager | None = None,
+        host_manager: HostManager | None = None,
+        env_file_manager: EnvFileManager | None = None,
     ) -> None:
         base_prompt = load_prompt(_WORKER_PROMPT_FILE)
         composer = SkillComposer(get_default_registry())
@@ -77,6 +88,11 @@ class Worker(BaseAgent):
             * 60.0
         )
         self.__mcp_manager: MCPManager | None = None
+        self._repo_registry = repo_registry or get_default_repo_registry()
+        self._workspace_manager = workspace_manager or WorkspaceManager()
+        self._dev_env_manager = dev_env_manager
+        self._host_manager = host_manager
+        self._env_file_manager = env_file_manager
 
     @property
     def _mcp_manager(self) -> MCPManager | None:
@@ -135,50 +151,102 @@ class Worker(BaseAgent):
 
     async def _execute_pipeline(self, subtask: SubTask) -> dict[str, Any]:
         """Run the implementation -> test -> UI verify -> commit pipeline."""
-        changed_files = await self.execute_subtask(subtask, subtask.result or {})
+        task_context: dict[str, Any] = subtask.result or {}
+
+        # Resolve repo config from context
+        repo_config: RepositoryConfig | None = None
+        repo_name = task_context.get("repository", "")
+        if repo_name:
+            try:
+                repo_config = self._repo_registry.get(repo_name)
+            except KeyError:
+                logger.warning("Worker %s: unknown repo %s in context", self.agent_id, repo_name)
+
+        # Step 1: Ensure /etc/hosts entries
+        if self._host_manager is not None:
+            await self._host_manager.ensure_hosts()
+
+        # Step 2: Ensure .env files exist and are valid
+        if repo_config is not None and self._env_file_manager is not None:
+            env_issues = self._env_file_manager.ensure_env(repo_config)
+            if env_issues:
+                logger.warning("Worker %s: env issues for %s: %s", self.agent_id, repo_name, env_issues)
+            if self._is_frontend_task() and repo_config.has_e2e:
+                self._env_file_manager.ensure_test_env(repo_config)
+
+        # Step 3: Start Docker services
+        if repo_config is not None and self._dev_env_manager is not None:
+            await self._dev_env_manager.start_services(repo_config)
+            await self._dev_env_manager.run_migrations(repo_config)
+
+        # Step 4: Create feature branch
+        jira_key = subtask.parent_task_id.split("-")[0] if "-" in (subtask.parent_task_id or "") else subtask.parent_task_id
+        branch = f"agent/{subtask.parent_task_id}/{subtask.id}"
+        if repo_config is not None:
+            try:
+                branch = await self._workspace_manager.create_branch(
+                    repo_config,
+                    subtask.parent_task_id,
+                )
+            except Exception as e:
+                logger.warning("Worker %s: branch creation failed: %s", self.agent_id, e)
+
+        # Step 5: Implement changes
+        changed_files = await self.execute_subtask(subtask, task_context)
 
         subtask.mark_status(TaskStatus.TESTING)
-        test_result = await self.run_tests(changed_files)
 
+        # Step 6: Run unit/integration tests
+        test_result = await self.run_tests(changed_files, repo_config=repo_config)
         if not test_result.get("passed", False):
             raise RuntimeError(
                 f"Tests failed for subtask {subtask.id}: "
                 f"{test_result.get('summary', 'unknown failure')}"
             )
 
-        # Run Playwright UI verification for frontend tasks
+        # Step 7: Run e2e tests and Playwright visual verify (frontend)
+        e2e_result: dict[str, Any] | None = None
         ui_result: UIVerificationResult | None = None
         if self._is_frontend_task():
-            task_context: dict[str, Any] = subtask.result or {}
-            dev_url = str(task_context.get("dev_url", "http://localhost:3000"))
+            # Run existing e2e suite
+            if repo_config is not None and repo_config.has_e2e and self._dev_env_manager is not None:
+                e2e_result = await self._dev_env_manager.run_e2e_tests(repo_config)
+                if not e2e_result.get("success", False):
+                    logger.warning(
+                        "Worker %s: e2e tests failed for %s — attaching output but not blocking",
+                        self.agent_id, repo_name,
+                    )
+
+            # Playwright visual verification
+            dev_url = str(task_context.get("dev_url", "")) or (repo_config.dev_url if repo_config else None) or "http://localhost:3000"
             assertions = _build_assertions_from_context(task_context)
             try:
                 ui_result = await self.verify_ui(dev_url, assertions)
                 if not ui_result.passed:
                     logger.warning(
-                        "Worker %s: UI verification failed (%d failures) — "
-                        "attaching debug context but not blocking commit",
+                        "Worker %s: UI verification failed (%d failures) — not blocking commit",
                         self.agent_id,
                         len(ui_result.failures),
                     )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning(
                     "Worker %s: UI verification skipped (Playwright unavailable): %s",
-                    self.agent_id,
-                    exc,
+                    self.agent_id, exc,
                 )
 
-        commit_sha = await self.commit_changes(
-            branch=f"agent/{subtask.parent_task_id}/{subtask.id}",
-            message=f"feat: {subtask.title}",
-        )
+        # Step 8: Commit and push
+        commit_sha = await self.commit_changes(branch=branch, message=f"feat: {subtask.title}")
 
         result: dict[str, Any] = {
             "subtask_id": subtask.id,
             "changed_files": changed_files,
             "test_result": test_result,
             "commit_sha": commit_sha,
+            "branch": branch,
+            "repository": repo_name,
         }
+        if e2e_result is not None:
+            result["e2e_result"] = e2e_result
         if ui_result is not None:
             result["ui_verification"] = ui_result.model_dump()
 
@@ -216,11 +284,15 @@ class Worker(BaseAgent):
 
         return list(subtask.file_paths)
 
-    async def run_tests(self, file_paths: list[str]) -> dict[str, Any]:
+    async def run_tests(
+        self,
+        file_paths: list[str],
+        repo_config: RepositoryConfig | None = None,
+    ) -> dict[str, Any]:
         """Run tests relevant to the changed *file_paths*.
 
-        In Phase 3 this is a stub that returns a synthetic pass result.
-        Phase 6 will invoke the actual test runner.
+        If a DevEnvironmentManager and repo_config are available, runs the
+        actual test suite via Docker. Otherwise falls back to MCP stub.
         """
         logger.info(
             "Worker %s: running tests for %d files",
@@ -228,6 +300,16 @@ class Worker(BaseAgent):
             len(file_paths),
         )
 
+        if repo_config is not None and self._dev_env_manager is not None:
+            env_result = await self._dev_env_manager.run_tests(repo_config)
+            return {
+                "passed": env_result["success"],
+                "summary": "Tests passed" if env_result["success"] else "Tests failed",
+                "output": env_result.get("output", ""),
+                "file_paths": file_paths,
+            }
+
+        # Fallback stub
         result = await self.call_mcp_tool(
             server="github",
             tool="run_tests",
@@ -306,13 +388,23 @@ class Worker(BaseAgent):
         errors = await client.get_console_errors()
         return dom, errors
 
-    async def run_e2e_tests(self, test_dir: str = "e2e") -> dict[str, Any]:
-        """Run the Playwright E2E test suite via ``npx playwright test``.
+    async def run_e2e_tests(
+        self,
+        test_dir: str = "e2e",
+        repo_config: RepositoryConfig | None = None,
+        grep: str | None = None,
+    ) -> dict[str, Any]:
+        """Run the Playwright E2E test suite.
 
-        Uses the Bash MCP tool so the agent SDK's file-system context is used.
-        Returns a structured result with pass/fail status and output summary.
+        If a DevEnvironmentManager and repo_config are available, runs the
+        existing e2e suite via Docker. Otherwise uses MCP bash tool.
         """
         logger.info("Worker %s: running E2E tests in %s", self.agent_id, test_dir)
+
+        if repo_config is not None and self._dev_env_manager is not None:
+            return await self._dev_env_manager.run_e2e_tests(repo_config, grep=grep)
+
+        # Fallback: MCP bash tool
         result = await self.call_mcp_tool(
             server="github",
             tool="run_tests",

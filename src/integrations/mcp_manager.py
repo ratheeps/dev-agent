@@ -27,7 +27,11 @@ from src.integrations.atlassian.jira_client import JiraClient
 from src.integrations.figma.design_client import FigmaDesignClient
 from src.integrations.github.repo_client import GitHubRepoClient
 from src.integrations.playwright.ui_client import PlaywrightUIClient
+from src.integrations.scm.bitbucket_client import BitbucketClient
+from src.integrations.scm.github_adapter import GitHubSCMAdapter
+from src.integrations.scm.protocol import SCMClient
 from src.integrations.teams.notification_client import TeamsNotificationClient
+from src.schemas.repository import SCMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +96,7 @@ class MCPManager:
         self._figma: FigmaDesignClient | None = None
         self._teams: TeamsNotificationClient | None = None
         self._playwright: PlaywrightUIClient | None = None
+        self._scm_clients: dict[SCMProvider, SCMClient] = {}
 
     # -- Singleton factory ---------------------------------------------------
 
@@ -200,6 +205,34 @@ class MCPManager:
         if self._playwright is None:
             self._playwright = PlaywrightUIClient(mcp_call=self._mcp_call)
         return self._playwright
+
+    def scm(
+        self,
+        provider: SCMProvider,
+        workspace: str = "giftbee",
+    ) -> SCMClient:
+        """Return (or lazily create) the SCM client for *provider*.
+
+        Parameters
+        ----------
+        provider:
+            SCMProvider.BITBUCKET or SCMProvider.GITHUB.
+        workspace:
+            Bitbucket workspace slug or GitHub org. Defaults to ``"giftbee"``.
+        """
+        if provider not in self._scm_clients:
+            if provider == SCMProvider.BITBUCKET:
+                self._scm_clients[provider] = BitbucketClient(workspace=workspace)
+            elif provider == SCMProvider.GITHUB:
+                adapter = GitHubSCMAdapter(
+                    client=self.github,
+                    org=workspace,
+                )
+                self._scm_clients[provider] = adapter
+            else:
+                raise ValueError(f"Unsupported SCM provider: {provider}")
+            logger.info("Initialised SCM client for %s (workspace=%s)", provider, workspace)
+        return self._scm_clients[provider]
 
     # -- Async context manager -----------------------------------------------
 

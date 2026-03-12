@@ -11,6 +11,11 @@ from src.agents.bedrock_client import BedrockClient
 from src.agents.claude_sdk_client import ClaudeSDKClient
 from src.agents.communication import MessageBus
 from src.agents.worker import Worker
+from src.repositories.env_manager import EnvFileManager
+from src.repositories.environment import DevEnvironmentManager
+from src.repositories.hosts import HostManager
+from src.repositories.registry import RepoRegistry
+from src.repositories.workspace import WorkspaceManager
 from src.schemas.skill import SkillSet
 from src.schemas.task import SubTask
 
@@ -31,6 +36,11 @@ class AgentRegistry:
         bedrock_client: BedrockClient | None = None,
         claude_sdk_client: ClaudeSDKClient | None = None,
         mcp_call: Any | None = None,
+        repo_registry: RepoRegistry | None = None,
+        workspace_manager: WorkspaceManager | None = None,
+        dev_env_manager: DevEnvironmentManager | None = None,
+        host_manager: HostManager | None = None,
+        env_file_manager: EnvFileManager | None = None,
     ) -> None:
         self._message_bus = message_bus
         self._bedrock_client = bedrock_client
@@ -39,6 +49,11 @@ class AgentRegistry:
         self._workers: dict[str, Worker] = {}
         self._orchestrator_id: str | None = None
         self._lock = asyncio.Lock()
+        self._repo_registry = repo_registry
+        self._workspace_manager = workspace_manager
+        self._dev_env_manager = dev_env_manager
+        self._host_manager = host_manager
+        self._env_file_manager = env_file_manager
 
         limits = load_limits_config()
         self._max_concurrent: int = int(
@@ -76,6 +91,11 @@ class AgentRegistry:
                 claude_sdk_client=self._claude_sdk_client,
                 mcp_call=self._mcp_call,
                 skill_set=skill_set,
+                repo_registry=self._repo_registry,
+                workspace_manager=self._workspace_manager,
+                dev_env_manager=self._dev_env_manager,
+                host_manager=self._host_manager,
+                env_file_manager=self._env_file_manager,
             )
             worker._message_handler = self._message_bus
             await self._message_bus.subscribe(worker.agent_id)

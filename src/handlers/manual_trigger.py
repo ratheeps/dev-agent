@@ -57,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         help="AWS region for Bedrock Runtime (default: us-east-1)",
     )
     parser.add_argument(
+        "--repo",
+        default=None,
+        help="Override target repo (e.g., wallet-service, store-front)",
+    )
+    parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -76,10 +81,16 @@ async def run_pipeline(
     *,
     backend: str = "stub",
     region: str = "us-east-1",
+    repo_override: str | None = None,
 ) -> None:
     """Initialize all dependencies and run the pipeline."""
     from src.agents.bedrock_client import BedrockClient
     from src.agents.claude_sdk_client import ClaudeSDKClient
+    from src.repositories.env_manager import EnvFileManager
+    from src.repositories.environment import DevEnvironmentManager
+    from src.repositories.hosts import HostManager
+    from src.repositories.registry import get_default_repo_registry
+    from src.repositories.workspace import WorkspaceManager
 
     bedrock_client = None
     claude_sdk_client = None
@@ -91,7 +102,7 @@ async def run_pipeline(
         claude_sdk_client = ClaudeSDKClient()
         print("Backend: Claude Agent SDK (autonomous agentic mode)")
     else:
-        print(  # noqa: E501
+        print(
             "Backend: stub (no LLM calls). Use --backend bedrock|claude-agent-sdk for real calls."
         )
 
@@ -101,6 +112,18 @@ async def run_pipeline(
     # Initialize memory client
     memory_client = MemoryClient()
 
+    # Initialize repo infrastructure
+    repo_registry = get_default_repo_registry()
+    infra_cfg = repo_registry.get_infra_config()
+    workspace_manager = WorkspaceManager()
+    host_manager = HostManager(infra_cfg)
+    env_file_manager = EnvFileManager(infra_cfg)
+    dev_env_manager = DevEnvironmentManager(
+        infra_config=infra_cfg,
+        shared_services=repo_registry.get_shared_services(),
+        registry=repo_registry,
+    )
+
     # Initialize agent infrastructure
     message_bus = MessageBus()
     registry = AgentRegistry(
@@ -108,6 +131,11 @@ async def run_pipeline(
         bedrock_client=bedrock_client,
         claude_sdk_client=claude_sdk_client,
         mcp_call=_stub_mcp_call,
+        repo_registry=repo_registry,
+        workspace_manager=workspace_manager,
+        dev_env_manager=dev_env_manager,
+        host_manager=host_manager,
+        env_file_manager=env_file_manager,
     )
     orchestrator = Orchestrator(
         registry=registry,
@@ -115,6 +143,7 @@ async def run_pipeline(
         bedrock_client=bedrock_client,
         claude_sdk_client=claude_sdk_client,
         mcp_call=_stub_mcp_call,
+        repo_registry=repo_registry,
     )
 
     # Create and run the pipeline
@@ -124,6 +153,9 @@ async def run_pipeline(
         mcp_manager=mcp_manager,
         memory_client=memory_client,
     )
+
+    if repo_override:
+        print(f"Repo override: {repo_override}")
 
     print(f"Starting pipeline for {ticket}...")
 
@@ -170,7 +202,7 @@ def main() -> None:
 
     try:
         loop.run_until_complete(
-            run_pipeline(args.ticket, backend=backend, region=args.region)
+            run_pipeline(args.ticket, backend=backend, region=args.region, repo_override=args.repo)
         )
     except asyncio.CancelledError:
         print("Pipeline cancelled.")

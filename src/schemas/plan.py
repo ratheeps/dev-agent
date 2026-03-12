@@ -29,6 +29,10 @@ class PlanStep(BaseModel):
         description="IDs of PlanSteps that must finish first",
     )
     agent_type: AgentType = AgentType.WORKER
+    repository: str | None = Field(
+        default=None,
+        description="Target repository name for this step (e.g. 'wallet-service')",
+    )
 
 
 class Plan(BaseModel):
