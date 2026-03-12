@@ -24,6 +24,14 @@
         "MICROSOFT_APP_PASSWORD": "${MS_APP_PASSWORD}",
         "MICROSOFT_TENANT_ID": "${MS_TENANT_ID}"
       }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@playwright/mcp@latest", "--headless"],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "${PLAYWRIGHT_BROWSERS_PATH}"
+      }
     }
   }
 }

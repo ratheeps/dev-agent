@@ -16,6 +16,7 @@ class TechStack(str, enum.Enum):
     TYPESCRIPT = "typescript"
     PHP = "php"
     LARAVEL = "laravel"
+    PLAYWRIGHT = "playwright"
     PYTHON = "python"
     UNKNOWN = "unknown"
 

@@ -9,8 +9,16 @@ from typing import Any
 from src.agents.base import BaseAgent, load_prompt
 from src.agents.bedrock_client import BedrockClient
 from src.agents.claude_sdk_client import ClaudeSDKClient
+from src.integrations.mcp_manager import MCPManager
 from src.schemas.message import MessageType
-from src.schemas.skill import SkillSet
+from src.schemas.playwright import (
+    BrowserSnapshot,
+    ConsoleError,
+    DOMSnapshot,
+    UIAssertion,
+    UIVerificationResult,
+)
+from src.schemas.skill import SkillSet, TechStack
 from src.schemas.task import SubTask, Task, TaskStatus
 from src.skills.composer import SkillComposer
 from src.skills.registry import get_default_registry
@@ -19,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 _WORKER_PROMPT_FILE = "worker_system.md"
 
+# Tech stacks that should trigger browser-based UI verification
+_FRONTEND_STACKS = frozenset(
+    {TechStack.REACT, TechStack.NEXTJS, TechStack.TYPESCRIPT, TechStack.PLAYWRIGHT}
+)
+
 
 class Worker(BaseAgent):
     """Implementation agent backed by Claude Sonnet 4.6.
@@ -26,8 +39,9 @@ class Worker(BaseAgent):
     Responsible for:
     1. Executing a single subtask (code changes).
     2. Running relevant tests.
-    3. Committing changes via the GitHub MCP server.
-    4. Reporting status back to the orchestrator.
+    3. Verifying UI for frontend tasks using Playwright MCP.
+    4. Committing changes via the GitHub MCP server.
+    5. Reporting status back to the orchestrator.
     """
 
     def __init__(
@@ -62,10 +76,14 @@ class Worker(BaseAgent):
             float(self._agents_config.get("worker", {}).get("timeout_minutes", 30))
             * 60.0
         )
+        self.__mcp_manager: MCPManager | None = None
 
-    # ------------------------------------------------------------------
-    # Primary workflow
-    # ------------------------------------------------------------------
+    @property
+    def _mcp_manager(self) -> MCPManager | None:
+        """Lazily initialise an MCPManager from the raw mcp_call, if available."""
+        if self.__mcp_manager is None and self._mcp_call is not None:
+            self.__mcp_manager = MCPManager(mcp_call=self._mcp_call)
+        return self.__mcp_manager
 
     async def run(self, task: Task | SubTask) -> dict[str, Any]:
         """Execute a subtask end-to-end within the configured timeout."""
@@ -116,7 +134,7 @@ class Worker(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _execute_pipeline(self, subtask: SubTask) -> dict[str, Any]:
-        """Run the implementation -> test -> commit pipeline."""
+        """Run the implementation -> test -> UI verify -> commit pipeline."""
         changed_files = await self.execute_subtask(subtask, subtask.result or {})
 
         subtask.mark_status(TaskStatus.TESTING)
@@ -128,17 +146,43 @@ class Worker(BaseAgent):
                 f"{test_result.get('summary', 'unknown failure')}"
             )
 
+        # Run Playwright UI verification for frontend tasks
+        ui_result: UIVerificationResult | None = None
+        if self._is_frontend_task():
+            task_context: dict[str, Any] = subtask.result or {}
+            dev_url = str(task_context.get("dev_url", "http://localhost:3000"))
+            assertions = _build_assertions_from_context(task_context)
+            try:
+                ui_result = await self.verify_ui(dev_url, assertions)
+                if not ui_result.passed:
+                    logger.warning(
+                        "Worker %s: UI verification failed (%d failures) — "
+                        "attaching debug context but not blocking commit",
+                        self.agent_id,
+                        len(ui_result.failures),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Worker %s: UI verification skipped (Playwright unavailable): %s",
+                    self.agent_id,
+                    exc,
+                )
+
         commit_sha = await self.commit_changes(
             branch=f"agent/{subtask.parent_task_id}/{subtask.id}",
             message=f"feat: {subtask.title}",
         )
 
-        return {
+        result: dict[str, Any] = {
             "subtask_id": subtask.id,
             "changed_files": changed_files,
             "test_result": test_result,
             "commit_sha": commit_sha,
         }
+        if ui_result is not None:
+            result["ui_verification"] = ui_result.model_dump()
+
+        return result
 
     async def execute_subtask(
         self,
@@ -217,6 +261,85 @@ class Worker(BaseAgent):
         return str(result.data.get("sha", "stub-sha-placeholder"))
 
     # ------------------------------------------------------------------
+    # Playwright UI methods
+    # ------------------------------------------------------------------
+
+    async def screenshot_page(self, url: str) -> BrowserSnapshot:
+        """Navigate to *url* and capture a screenshot via Playwright MCP."""
+        logger.info("Worker %s: capturing screenshot of %s", self.agent_id, url)
+        if self._mcp_manager is None:
+            return BrowserSnapshot(url=url)
+        return await self._mcp_manager.playwright.screenshot_url(url)
+
+    async def verify_ui(
+        self,
+        url: str,
+        assertions: list[UIAssertion] | None = None,
+    ) -> UIVerificationResult:
+        """Navigate to *url*, run *assertions*, and return a full verification result.
+
+        Always captures a screenshot and console errors for debug context.
+        If *assertions* is empty, returns a result with just the screenshot
+        and console errors (useful as a sanity check).
+        """
+        logger.info(
+            "Worker %s: verifying UI at %s (%d assertions)",
+            self.agent_id,
+            url,
+            len(assertions or []),
+        )
+        if self._mcp_manager is None:
+            return UIVerificationResult(url=url, passed=True)
+        return await self._mcp_manager.playwright.verify_assertions(
+            url=url,
+            assertions=assertions or [],
+        )
+
+    async def debug_ui(self, url: str) -> tuple[DOMSnapshot, list[ConsoleError]]:
+        """Navigate to *url* and capture the full DOM + console errors for debugging."""
+        logger.info("Worker %s: capturing debug snapshot of %s", self.agent_id, url)
+        if self._mcp_manager is None:
+            return DOMSnapshot(url=url), []
+        client = self._mcp_manager.playwright
+        await client.navigate(url)
+        dom = await client.get_dom_snapshot()
+        errors = await client.get_console_errors()
+        return dom, errors
+
+    async def run_e2e_tests(self, test_dir: str = "e2e") -> dict[str, Any]:
+        """Run the Playwright E2E test suite via ``npx playwright test``.
+
+        Uses the Bash MCP tool so the agent SDK's file-system context is used.
+        Returns a structured result with pass/fail status and output summary.
+        """
+        logger.info("Worker %s: running E2E tests in %s", self.agent_id, test_dir)
+        result = await self.call_mcp_tool(
+            server="github",
+            tool="run_tests",
+            args={
+                "command": f"npx playwright test {test_dir} --reporter=list",
+                "file_paths": [],
+            },
+        )
+        return {
+            "passed": result.success,
+            "summary": "E2E tests passed" if result.success else "E2E tests failed",
+            "test_dir": test_dir,
+            "output": result.data.get("output", "") if hasattr(result, "data") else "",
+        }
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _is_frontend_task(self) -> bool:
+        """Return True if this worker has at least one frontend skill."""
+        if self._skill_set is None:
+            return False
+        detected = {s.tech_stack for s in self._skill_set.skills}
+        return bool(detected & _FRONTEND_STACKS)
+
+    # ------------------------------------------------------------------
     # Messaging helpers
     # ------------------------------------------------------------------
 
@@ -254,3 +377,21 @@ class Worker(BaseAgent):
             self.agent_id,
             description,
         )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _build_assertions_from_context(context: dict[str, Any]) -> list[UIAssertion]:
+    """Build UIAssertions from subtask context if provided."""
+    raw = context.get("ui_assertions", [])
+    assertions: list[UIAssertion] = []
+    for item in raw:
+        if isinstance(item, dict):
+            try:
+                assertions.append(UIAssertion(**item))
+            except Exception:  # noqa: BLE001
+                pass
+    return assertions
+

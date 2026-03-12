@@ -37,4 +37,18 @@ claude_agent_sdk:
             - Read
             - Write
             - Bash
+        # Additional browser tools activated when frontend skills (React/Next.js/Playwright)
+        # are detected for the task. These map to Playwright MCP tool names.
+        worker_frontend:
+            - Read
+            - Write
+            - Bash
+            - browser_navigate
+            - browser_screenshot
+            - browser_click
+            - browser_type
+            - browser_fill
+            - browser_select_option
+            - browser_evaluate
+            - browser_close
     cwd: /workspace # Working directory for agent file operations

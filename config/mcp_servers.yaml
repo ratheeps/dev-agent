@@ -36,3 +36,14 @@ servers:
       TEAMS_TENANT_ID: "${TEAMS_TENANT_ID}"
       TEAMS_CLIENT_ID: "${TEAMS_CLIENT_ID}"
       TEAMS_CLIENT_SECRET: "${TEAMS_CLIENT_SECRET}"
+
+  playwright:
+    name: playwright
+    command: "npx"
+    args:
+      - "@playwright/mcp@latest"
+    enabled: true
+    # Set headless: false for local development/debugging; true for CI
+    headless: true
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: "${PLAYWRIGHT_BROWSERS_PATH}"

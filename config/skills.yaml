@@ -89,3 +89,24 @@ skills:
       - sanctum
       - livewire
       - inertia
+
+  playwright:
+    tech_stack: playwright
+    description: "Playwright E2E testing, browser automation, UI verification and debugging"
+    prompt_file: "skills/playwright.md"
+    file_patterns:
+      - "playwright.config.*"
+      - "*.spec.ts"
+      - "*.spec.js"
+      - "e2e/**"
+      - "tests/**/*.spec.*"
+      - "test/**/*.spec.*"
+    keywords:
+      - playwright
+      - e2e
+      - end-to-end
+      - browser test
+      - ui test
+      - page object
+      - locator
+      - test automation

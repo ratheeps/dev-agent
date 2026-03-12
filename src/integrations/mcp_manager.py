@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Protocol
+from typing import Any, Protocol
 
 import yaml
 from pydantic import BaseModel, Field
@@ -25,6 +26,7 @@ from src.integrations.atlassian.confluence_client import ConfluenceClient
 from src.integrations.atlassian.jira_client import JiraClient
 from src.integrations.figma.design_client import FigmaDesignClient
 from src.integrations.github.repo_client import GitHubRepoClient
+from src.integrations.playwright.ui_client import PlaywrightUIClient
 from src.integrations.teams.notification_client import TeamsNotificationClient
 
 logger = logging.getLogger(__name__)
@@ -89,6 +91,7 @@ class MCPManager:
         self._github: GitHubRepoClient | None = None
         self._figma: FigmaDesignClient | None = None
         self._teams: TeamsNotificationClient | None = None
+        self._playwright: PlaywrightUIClient | None = None
 
     # -- Singleton factory ---------------------------------------------------
 
@@ -191,6 +194,12 @@ class MCPManager:
         if self._teams is None:
             self._teams = TeamsNotificationClient(mcp_call=self._mcp_call)
         return self._teams
+
+    @property
+    def playwright(self) -> PlaywrightUIClient:
+        if self._playwright is None:
+            self._playwright = PlaywrightUIClient(mcp_call=self._mcp_call)
+        return self._playwright
 
     # -- Async context manager -----------------------------------------------
 
