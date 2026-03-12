@@ -1,93 +1,150 @@
 # Laravel Skill
 
 You are an expert Laravel developer. Apply these guidelines for idiomatic, maintainable Laravel applications.
+This project uses **Laravel 12**, **PHP 8.3**, **Laravel Passport** (OAuth2), **Spatie** packages, **Bref** (AWS Lambda serverless), **SQS** for queues, and **Redis** via Predis.
 
 ## Version Target
 
-- Target **Laravel 11+** unless the project specifies otherwise
-- Follow the Laravel release conventions (single `bootstrap/app.php`, minimal service providers)
+- Target **Laravel 12** with **PHP 8.3+**
+- Follow Laravel 11+ conventions: single `bootstrap/app.php`, minimal service providers
+- Use `declare(strict_types=1)` in every PHP file
 
 ## Application Structure
 
 ```
 app/
-  Actions/          # Single-responsibility action classes
+  Actions/          # Single-responsibility action classes (Spatie Queueable Actions)
   Console/          # Artisan commands
   Events/           # Domain events
-  Exceptions/       # Custom exception classes
+  Exceptions/       # Custom exception classes + Handler
   Http/
     Controllers/    # Thin controllers — delegate to Actions/Services
     Middleware/     # Request middleware
-    Requests/       # Form Request validation classes
-    Resources/      # API Resources (transformers)
-  Jobs/             # Queued jobs
+    Requests/       # Form Request validation
+    Resources/      # API Resources (Spatie Data or JsonResource)
+  Jobs/             # Queued jobs (dispatched to SQS)
   Listeners/        # Event listeners
   Mail/             # Mailable classes
-  Models/           # Eloquent models
+  Models/           # Eloquent models (UUID primary keys)
   Notifications/    # Notification classes
-  Observers/        # Model observers
+  Observers/        # Model observers (with Laravel Auditing)
   Policies/         # Authorization policies
-  Providers/        # Service providers (minimal in L11)
   Rules/            # Custom validation rules
   Services/         # Domain service classes
 database/
   factories/        # Model factories
-  migrations/       # Schema migrations
-  seeders/          # Database seeders
+  migrations/       # Schema migrations (ULIDs, timestamps)
+  seeders/
+config/
+  passport.php      # OAuth2 configuration
+routes/
+  api.php           # Versioned API routes (/api/v1/...)
+  web.php           # Web routes (Inertia or minimal)
 ```
 
 ## Eloquent ORM
 
 ```php
-// Model conventions
-final class User extends Authenticatable
-{
-    // Always declare fillable or guarded
-    protected $fillable = ['name', 'email', 'password'];
+<?php
 
-    // Cast types explicitly
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'settings' => 'array',
-        'is_admin' => 'boolean',
+declare(strict_types=1);
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Builder;
+use OwenIt\Auditing\Contracts\Auditable;
+use OwenIt\Auditing\Auditable as AuditableTrait;
+
+final class Order extends Model implements Auditable
+{
+    use HasUuids, SoftDeletes, AuditableTrait;
+
+    protected $fillable = [
+        'user_id', 'product_id', 'recipient_email', 'amount', 'currency', 'status',
     ];
 
-    // Relationships
-    public function posts(): HasMany
+    protected $casts = [
+        'amount'     => 'integer',     // always in cents
+        'metadata'   => 'array',
+        'created_at' => 'datetime',
+    ];
+
+    public function user(): BelongsTo
     {
-        return $this->hasMany(Post::class);
+        return $this->belongsTo(User::class);
     }
 
-    public function role(): BelongsTo
+    public function transactions(): HasMany
     {
-        return $this->belongsTo(Role::class);
+        return $this->hasMany(Transaction::class);
     }
 
-    // Scopes
-    public function scopeActive(Builder $query): Builder
+    // Query scopes
+    public function scopePending(Builder $query): Builder
     {
-        return $query->where('active', true);
+        return $query->where('status', 'pending');
     }
 }
 
-// Querying
-User::query()
-    ->where('active', true)
-    ->with(['role', 'posts' => fn ($q) => $q->latest()->limit(5)])
-    ->orderBy('created_at', 'desc')
+// Querying — always eager-load relationships
+Order::query()
+    ->pending()
+    ->with(['user', 'transactions' => fn ($q) => $q->latest()])
+    ->orderByDesc('created_at')
     ->paginate(20);
+```
+
+## Spatie Data (DTOs)
+
+Use **Spatie Laravel Data** for type-safe DTOs instead of raw arrays.
+
+```php
+use Spatie\LaravelData\Data;
+use Spatie\LaravelData\Attributes\Validation\Email;
+use Spatie\LaravelData\Attributes\Validation\Min;
+use Spatie\LaravelData\Attributes\Validation\Max;
+
+final class CreateOrderData extends Data
+{
+    public function __construct(
+        public readonly string $productId,
+        #[Email]
+        public readonly string $recipientEmail,
+        #[Min(1000), Max(1_000_000)]
+        public readonly int $amount,       // cents
+        public readonly string $currency,
+        public readonly ?string $message,
+    ) {}
+}
+
+// Usage in controller
+final class StoreOrderController extends Controller
+{
+    public function __invoke(CreateOrderData $data, CreateOrder $action): JsonResponse
+    {
+        $order = $action->execute($data);
+        return response()->json(new OrderResource($order), 201);
+    }
+}
 ```
 
 ## Controllers — Keep Thin
 
 ```php
-// Single-action controllers for clarity
-final class StoreUserController extends Controller
+// Single-action controllers with Form Request or Spatie Data
+final class StoreOrderController extends Controller
 {
-    public function __invoke(StoreUserRequest $request, CreateUser $createUser): JsonResponse
-    {
-        $user = $createUser->handle($request->validated());
-        return response()->json(new UserResource($user), 201);
+    public function __invoke(
+        StoreOrderRequest $request,
+        CreateOrder $createOrder,
+    ): JsonResponse {
+        $order = $createOrder->execute($request->toOrderData());
+        return response()->json(new OrderResource($order), 201);
     }
 }
 ```
@@ -95,54 +152,145 @@ final class StoreUserController extends Controller
 ## Form Requests for Validation
 
 ```php
-final class StoreUserRequest extends FormRequest
+final class StoreOrderRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true; // or gate check
+        return $this->user() !== null;
     }
 
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'min:8', 'confirmed'],
+            'product_id'      => ['required', 'uuid', 'exists:products,id'],
+            'recipient_email' => ['required', 'email', 'max:255'],
+            'amount'          => ['required', 'integer', 'min:1000', 'max:1000000'],
+            'currency'        => ['required', 'string', 'size:3'],
+            'message'         => ['nullable', 'string', 'max:500'],
         ];
     }
+
+    public function toOrderData(): CreateOrderData
+    {
+        return CreateOrderData::from($this->validated());
+    }
 }
+```
+
+## Spatie Queueable Actions
+
+Use **Spatie Queueable Action** for actions that can run synchronously or be queued.
+
+```php
+use Spatie\QueueableAction\QueueableAction;
+
+final class SendGiftCardEmail
+{
+    use QueueableAction;
+
+    public function execute(Order $order, User $recipient): void
+    {
+        Mail::to($recipient->email)->send(new GiftCardMailable($order));
+    }
+}
+
+// Run synchronously
+app(SendGiftCardEmail::class)->execute($order, $recipient);
+
+// Dispatch to queue
+app(SendGiftCardEmail::class)->onQueue('emails')->execute($order, $recipient);
+```
+
+## Laravel Passport (OAuth2)
+
+The project uses **Laravel Passport** with both password grant and client credentials grant.
+
+```php
+// routes/api.php
+Route::prefix('v1')->group(function () {
+    // Public — OAuth token endpoint handled by Passport
+    Route::post('/auth/token', [\Laravel\Passport\Http\Controllers\AccessTokenController::class, 'issueToken']);
+
+    // Protected routes
+    Route::middleware('auth:api')->group(function () {
+        Route::get('/user/profile', [ProfileController::class, 'show']);
+        Route::apiResource('orders', OrderController::class);
+    });
+
+    // Client credentials — machine-to-machine (e.g. Pimcore service)
+    Route::middleware('client')->group(function () {
+        Route::get('/catalog/products', [CatalogController::class, 'index']);
+    });
+});
+
+// Controller — get authenticated user
+final class ProfileController extends Controller
+{
+    public function show(Request $request): JsonResponse
+    {
+        $user = $request->user();  // typed as User via Passport guard
+        return response()->json(new UserResource($user));
+    }
+}
+```
+
+## Spatie Permissions (RBAC)
+
+```php
+// Assign roles/permissions
+$user->assignRole('corporate_admin');
+$user->givePermissionTo('manage:orders');
+
+// Check in controller/policy
+$this->authorize('manage:orders');
+
+// In Blade / Inertia
+@role('corporate_admin')
+  <AdminPanel />
+@endrole
+
+// Middleware on routes
+Route::middleware(['auth:api', 'role:corporate_admin'])->group(function () {
+    Route::apiResource('users', AdminUserController::class);
+});
 ```
 
 ## API Resources
 
 ```php
-final class UserResource extends JsonResource
+final class OrderResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
-            'name' => $this->name,
-            'email' => $this->email,
-            'created_at' => $this->created_at->toIso8601String(),
-            'posts' => PostResource::collection($this->whenLoaded('posts')),
+            'id'              => $this->id,
+            'status'          => $this->status,
+            'recipient_email' => $this->recipient_email,
+            'amount'          => $this->amount,       // cents
+            'currency'        => $this->currency,
+            'created_at'      => $this->created_at->toIso8601String(),
+            'user'            => new UserResource($this->whenLoaded('user')),
+            'transactions'    => TransactionResource::collection($this->whenLoaded('transactions')),
         ];
     }
 }
 ```
 
-## Migrations
+## Migrations (ULIDs / UUIDs)
 
 ```php
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('users', function (Blueprint $table) {
-            $table->ulid('id')->primary();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
+        Schema::create('orders', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->foreignUuid('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('product_id')->constrained();
+            $table->string('recipient_email');
+            $table->unsignedBigInteger('amount');    // cents
+            $table->string('currency', 3)->default('AUD');
+            $table->string('status', 50)->default('pending')->index();
+            $table->json('metadata')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });
@@ -150,77 +298,152 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('users');
+        Schema::dropIfExists('orders');
     }
 };
 ```
 
-## Jobs and Queues
+## Jobs and SQS Queues
 
 ```php
-final class SendWelcomeEmail implements ShouldQueue
+// Jobs dispatch to SQS — use QUEUE_CONNECTION=sqs in production
+final class ProcessGiftCardOrder implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-    public int $backoff = 60;
+    public int $backoff = 30;
+    public int $timeout = 120;
 
-    public function __construct(private readonly User $user) {}
+    public function __construct(private readonly Order $order) {}
 
-    public function handle(Mailer $mailer): void
+    public function handle(WalletService $wallet): void
     {
-        $mailer->to($this->user)->send(new WelcomeMail($this->user));
+        $wallet->debit($this->order);
+        $this->order->update(['status' => 'processing']);
+        app(SendGiftCardEmail::class)->execute($this->order, $this->order->user);
     }
 
     public function failed(\Throwable $e): void
     {
-        Log::error('Welcome email failed', ['user' => $this->user->id, 'error' => $e->getMessage()]);
+        Log::error('Gift card order failed', [
+            'order_id' => $this->order->id,
+            'error'    => $e->getMessage(),
+        ]);
+        $this->order->update(['status' => 'failed']);
     }
 }
 
 // Dispatch
-SendWelcomeEmail::dispatch($user);
-SendWelcomeEmail::dispatch($user)->delay(now()->addMinutes(5));
+ProcessGiftCardOrder::dispatch($order);
+ProcessGiftCardOrder::dispatch($order)->onQueue('orders')->delay(now()->addSeconds(5));
 ```
 
-## Authorization (Gates and Policies)
+## Redis with Predis
 
 ```php
-// Policy
-final class PostPolicy
+// config/database.php — Redis uses Predis client
+'redis' => [
+    'client' => env('REDIS_CLIENT', 'predis'),
+    'default' => [
+        'url'  => env('REDIS_URL'),
+        'host' => env('REDIS_HOST', '127.0.0.1'),
+        'port' => env('REDIS_PORT', '6379'),
+    ],
+],
+
+// Usage
+use Illuminate\Support\Facades\Redis;
+
+Redis::set("user:profile:{$userId}", json_encode($profile), 'EX', 3600);
+$cached = Redis::get("user:profile:{$userId}");
+
+// Cache facade (preferred for simple caching)
+Cache::remember("products:{$categoryId}", now()->addHour(), fn () => Product::where('category_id', $categoryId)->get());
+Cache::forget("products:{$categoryId}");
+```
+
+## Bref Serverless (AWS Lambda)
+
+The project deploys on **AWS Lambda via Bref**. Keep these constraints in mind:
+
+```php
+// In serverless context:
+// - No persistent filesystem writes (use S3)
+// - No long-running processes
+// - Cold starts — keep bootstrap lean
+// - SQS handler for async processing
+
+// serverless.yml function handler
+// handler: Bref\LaravelBridge\Http\OctaneHandler
+// layers: [${bref:layer.php-83-fpm}]
+
+// S3 for file storage — never write to local disk
+Storage::disk('s3')->put("receipts/{$order->id}.pdf", $pdfContent);
+
+// Use SQS for all async work
+ProcessGiftCardOrder::dispatch($order)->onQueue(config('queue.connections.sqs.queue'));
+```
+
+## Authorization (Policies)
+
+```php
+final class OrderPolicy
 {
-    public function update(User $user, Post $post): bool
+    public function view(User $user, Order $order): bool
     {
-        return $user->id === $post->user_id;
+        return $user->id === $order->user_id || $user->hasRole('corporate_admin');
+    }
+
+    public function cancel(User $user, Order $order): bool
+    {
+        return $user->id === $order->user_id && $order->status === 'pending';
     }
 }
 
-// Usage in controller
-$this->authorize('update', $post);
-// or in Blade
-@can('update', $post) ... @endcan
+// Register in AppServiceProvider (L11+)
+Gate::policy(Order::class, OrderPolicy::class);
 ```
 
 ## Testing
 
 ```php
-// Feature tests (HTTP)
-final class UserRegistrationTest extends TestCase
+final class CreateOrderTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_user_can_register(): void
+    public function test_authenticated_user_can_create_order(): void
     {
-        $response = $this->postJson('/api/users', [
-            'name' => 'Alice',
-            'email' => 'alice@example.com',
-            'password' => 'password',
-            'password_confirmation' => 'password',
-        ]);
+        $user = User::factory()->create();
+        $product = Product::factory()->available()->create();
+
+        $response = $this->actingAs($user, 'api')
+            ->postJson('/api/v1/orders', [
+                'product_id'      => $product->id,
+                'recipient_email' => 'friend@example.com',
+                'amount'          => 5000,
+                'currency'        => 'AUD',
+            ]);
 
         $response->assertCreated()
-            ->assertJsonPath('data.email', 'alice@example.com');
-        $this->assertDatabaseHas('users', ['email' => 'alice@example.com']);
+            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.recipient_email', 'friend@example.com');
+
+        $this->assertDatabaseHas('orders', [
+            'user_id' => $user->id,
+            'amount'  => 5000,
+        ]);
+    }
+
+    public function test_order_creation_dispatches_job(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+
+        $this->actingAs($user, 'api')
+            ->postJson('/api/v1/orders', [...]);
+
+        Queue::assertPushed(ProcessGiftCardOrder::class);
     }
 }
 ```
@@ -228,20 +451,25 @@ final class UserRegistrationTest extends TestCase
 ## Service Container and Dependency Injection
 
 ```php
-// In AppServiceProvider or a dedicated provider
-$this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
+// Bind interfaces in AppServiceProvider
+$this->app->bind(WalletServiceInterface::class, BavixWalletService::class);
+$this->app->singleton(PimcoreClient::class, fn () => new PimcoreClient(config('services.pimcore')));
 
-// Constructor injection in controllers and services (auto-resolved)
-public function __construct(private readonly UserRepositoryInterface $users) {}
+// Constructor injection — auto-resolved by container
+public function __construct(
+    private readonly WalletServiceInterface $wallet,
+    private readonly PimcoreClient $pimcore,
+) {}
 ```
 
 ## Anti-Patterns to Avoid
 
 - ❌ Fat controllers — move logic to Action classes or Services
-- ❌ DB::statement or raw queries for CRUD — use Eloquent or Query Builder
-- ❌ N+1 queries — always eager-load relationships with `with()`
-- ❌ Business logic in Blade templates
-- ❌ Using `$request->all()` — use `$request->validated()` from Form Requests
-- ❌ Hardcoded credentials — use `.env` and `config()` helper
-- ❌ Skipping database indexes on frequently-queried columns
-- ❌ Not using queues for time-consuming tasks (emails, notifications, API calls)
+- ❌ N+1 queries — always eager-load with `with()` or `load()`
+- ❌ `$request->all()` — use `$request->validated()` or Spatie Data
+- ❌ Business logic in Blade templates or API Resources
+- ❌ Writing to local filesystem in Bref/Lambda — use S3
+- ❌ Synchronous processing for emails/PDFs/notifications — always queue
+- ❌ Hardcoded credentials — use `.env` + `config()` helper
+- ❌ Missing database indexes on foreign keys and frequently-queried columns
+- ❌ `DB::statement()` for CRUD — use Eloquent or Query Builder

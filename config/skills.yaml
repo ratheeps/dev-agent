@@ -110,3 +110,107 @@ skills:
       - page object
       - locator
       - test automation
+
+  python:
+    tech_stack: python
+    description: "Python 3.12+, asyncio, Pydantic v2, FastAPI, httpx, pytest, mypy strict mode"
+    prompt_file: "skills/python.md"
+    file_patterns:
+      - "*.py"
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "setup.py"
+    keywords:
+      - python
+      - fastapi
+      - django
+      - flask
+      - pydantic
+      - pytest
+      - asyncio
+      - httpx
+      - uvicorn
+
+  design_patterns:
+    tech_stack: design_patterns
+    description: "GiftBee software design patterns: Action/Command, Repository, Adapter, State Machine, Observer, Message Bus, Circuit Breaker, Strategy, POM, Factory, DI"
+    prompt_file: "skills/design-patterns.md"
+    file_patterns:
+      - "app/Actions/**"
+      - "app/Repositories/**"
+      - "app/Observers/**"
+      - "src/workflows/**"
+      - "src/agents/**"
+      - "src/resilience/**"
+    keywords:
+      - design pattern
+      - architecture
+      - repository pattern
+      - action pattern
+      - state machine
+      - circuit breaker
+      - message bus
+      - adapter pattern
+      - dependency injection
+      - factory
+      - observer
+      - strategy pattern
+
+  app_architecture:
+    tech_stack: app_architecture
+    description: "GiftBee 5-repo multi-service architecture: store-front, admin-portal, wallet-service, pim, local-infra. Auth flows, API contracts, feature-slice structure."
+    prompt_file: "skills/app-architecture.md"
+    file_patterns:
+      - "src/app/**"
+      - "src/features/**"
+      - "routes/api.php"
+      - "app/Http/Controllers/**"
+    keywords:
+      - multi-repo
+      - microservice
+      - api contract
+      - feature slice
+      - oauth2
+      - passport
+      - client credentials
+      - password grant
+      - api versioning
+      - cross-service
+      - storefront
+      - admin portal
+      - wallet service
+
+  infra_architecture:
+    tech_stack: infra_architecture
+    description: "GiftBee infrastructure: local Docker Compose, AWS Lambda/Bref, Bedrock AgentCore, DynamoDB, API Gateway, OpenTofu, Bitbucket Pipelines, Secrets Manager"
+    prompt_file: "skills/infra-architecture.md"
+    file_patterns:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "serverless.yml"
+      - "bitbucket-pipelines.yml"
+      - "infra/**"
+      - "*.tofu"
+      - "*.tf"
+    keywords:
+      - docker
+      - docker compose
+      - dockerfile
+      - nginx
+      - aws
+      - lambda
+      - bref
+      - sqs
+      - s3
+      - opentofu
+      - terraform
+      - deploy
+      - deployment
+      - ci/cd
+      - pipeline
+      - infrastructure
+      - devops
+      - cloudwatch
+      - secrets manager
+      - bedrock
+      - agentcore

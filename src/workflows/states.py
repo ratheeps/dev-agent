@@ -25,6 +25,7 @@ class WorkflowState(str, enum.Enum):
     DELEGATING = "delegating"
     IMPLEMENTING = "implementing"
     TESTING = "testing"
+    AWAITING_APPROVAL = "awaiting_approval"
     PR_CREATED = "pr_created"
     REVIEWING = "reviewing"
     CHANGES_REQUESTED = "changes_requested"
@@ -65,10 +66,16 @@ VALID_TRANSITIONS: dict[WorkflowState, frozenset[WorkflowState]] = {
         WorkflowState.RETRYING,
     }),
     WorkflowState.TESTING: frozenset({
+        WorkflowState.AWAITING_APPROVAL,
         WorkflowState.PR_CREATED,
         WorkflowState.IMPLEMENTING,
         WorkflowState.FAILED,
         WorkflowState.RETRYING,
+    }),
+    WorkflowState.AWAITING_APPROVAL: frozenset({
+        WorkflowState.PR_CREATED,
+        WorkflowState.IMPLEMENTING,  # rejected → re-plan
+        WorkflowState.FAILED,
     }),
     WorkflowState.PR_CREATED: frozenset({
         WorkflowState.REVIEWING,
@@ -119,6 +126,7 @@ STATE_TIMEOUTS: dict[WorkflowState, int] = {
     WorkflowState.DELEGATING: 60,
     WorkflowState.IMPLEMENTING: 1800,
     WorkflowState.TESTING: 600,
+    WorkflowState.AWAITING_APPROVAL: 3600,  # 1 hour for human response
     WorkflowState.PR_CREATED: 60,
     WorkflowState.REVIEWING: 7200,
     WorkflowState.CHANGES_REQUESTED: 1800,
@@ -159,6 +167,10 @@ class WorkflowContext(BaseModel):
     error_info: str = ""
     retry_count: int = 0
     max_retries: int = 3
+    feedback_queue: list[str] = Field(
+        default_factory=list,
+        description="Developer feedback injected via Teams @mentions",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.agents.orchestrator import Orchestrator
 from src.integrations.mcp_manager import MCPManager
 from src.integrations.scm.github_adapter import GitHubSCMAdapter
+from src.integrations.teams.approval_flow import ApprovalFlow, ApprovalTrigger
 from src.memory.client import MemoryClient
 from src.schemas.task import Task, TaskStatus
 from src.workflows.code_implementation import CodeImplementationHandler
@@ -40,11 +41,13 @@ class WorkflowPipeline:
         orchestrator: Orchestrator,
         mcp_manager: MCPManager,
         memory_client: MemoryClient,
+        approval_flow: ApprovalFlow | None = None,
     ) -> None:
         self._jira_key = jira_key
         self._orchestrator = orchestrator
         self._mcp = mcp_manager
         self._memory = memory_client
+        self._approval_flow = approval_flow
 
         self._context = WorkflowContext(
             workflow_id=uuid.uuid4().hex[:12],
@@ -133,6 +136,19 @@ class WorkflowPipeline:
         )
         return await self.run()
 
+    def inject_feedback(self, feedback: str) -> None:
+        """Inject developer feedback (from Teams @mention) into the pipeline context.
+
+        The feedback is queued in `context.feedback_queue` and consumed by the
+        orchestrator/worker on their next iteration.
+        """
+        self._context.feedback_queue.append(feedback)
+        logger.info(
+            "Pipeline %s: feedback injected — %r",
+            self._context.workflow_id,
+            feedback[:80],
+        )
+
     # ------------------------------------------------------------------
     # State handlers
     # ------------------------------------------------------------------
@@ -217,10 +233,71 @@ class WorkflowPipeline:
         if not test_result.get("passed", False):
             raise RuntimeError(f"Tests failed: {test_result.get('summary', 'unknown')}")
 
-        self._context.transition_to(
-            WorkflowState.PR_CREATED,
-            condition="All tests passed",
+        # Route through approval gate before creating the PR
+        if self._approval_flow is not None:
+            self._context.transition_to(
+                WorkflowState.AWAITING_APPROVAL,
+                condition="Tests passed — awaiting human approval before PR",
+            )
+        else:
+            self._context.transition_to(
+                WorkflowState.PR_CREATED,
+                condition="All tests passed",
+            )
+
+    async def _handle_approval_gate(self) -> None:
+        """Request human approval before creating the PR.
+
+        Pauses the pipeline until a Teams card action (or @mention) resolves
+        the approval. On rejection, re-routes back to IMPLEMENTING so the
+        agent can re-plan based on the rejection feedback.
+        """
+        if self._approval_flow is None:
+            # No approval flow configured — skip straight to PR
+            self._context.transition_to(
+                WorkflowState.PR_CREATED,
+                condition="Approval gate skipped (no ApprovalFlow configured)",
+            )
+            return
+
+        task_title = self._context.task.title if self._context.task else self._jira_key
+        repo = self._context.task.context.get("repository", "") if self._context.task else ""
+
+        approval = await self._approval_flow.request_approval(
+            trigger=ApprovalTrigger.PRE_MERGE,
+            title=f"PR ready for {self._jira_key}: {task_title}",
+            description=(
+                f"Dev-AI has finished implementing and all tests pass.\n\n"
+                f"**Repo**: {repo}\n"
+                f"**Branch**: {self._context.branch_name}\n\n"
+                "Please review and approve to create the PR, or reject to request changes."
+            ),
         )
+
+        from src.integrations.teams.approval_flow import ApprovalStatus
+
+        if approval.status == ApprovalStatus.APPROVED:
+            logger.info("Pipeline: approval granted by %s", approval.response_by)
+            self._context.transition_to(
+                WorkflowState.PR_CREATED,
+                condition=f"Approved by {approval.response_by}",
+            )
+        elif approval.status == ApprovalStatus.REJECTED:
+            logger.info("Pipeline: approval rejected by %s", approval.response_by)
+            self._context.feedback_queue.append(
+                f"PR rejected by {approval.response_by}. Re-implement with requested changes."
+            )
+            self._context.transition_to(
+                WorkflowState.IMPLEMENTING,
+                condition=f"Rejected by {approval.response_by} — re-implementing",
+            )
+        else:
+            # Timed out — proceed anyway to avoid blocking indefinitely
+            logger.warning("Pipeline: approval timed out — proceeding with PR creation")
+            self._context.transition_to(
+                WorkflowState.PR_CREATED,
+                condition="Approval timed out — auto-proceeding",
+            )
 
     async def _handle_pr_creation(self) -> None:
         if self._context.task is None or self._context.plan is None:
@@ -298,6 +375,7 @@ class WorkflowPipeline:
         WorkflowState.DELEGATING: _handle_delegating,
         WorkflowState.IMPLEMENTING: _handle_implementing,
         WorkflowState.TESTING: _handle_testing,
+        WorkflowState.AWAITING_APPROVAL: _handle_approval_gate,
         WorkflowState.PR_CREATED: _handle_pr_creation,
         WorkflowState.REVIEWING: _handle_reviewing,
         WorkflowState.CHANGES_REQUESTED: _handle_changes_requested,

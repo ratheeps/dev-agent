@@ -18,6 +18,9 @@ class TechStack(str, enum.Enum):
     LARAVEL = "laravel"
     PLAYWRIGHT = "playwright"
     PYTHON = "python"
+    DESIGN_PATTERNS = "design_patterns"
+    APP_ARCHITECTURE = "app_architecture"
+    INFRA_ARCHITECTURE = "infra_architecture"
     UNKNOWN = "unknown"
 
 

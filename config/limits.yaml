@@ -16,3 +16,17 @@ rate_limits:
 workers:
   max_concurrent: 5
   max_per_ticket: 3
+
+approval_gates:
+  # Triggers that ALWAYS require human approval before proceeding
+  always_require:
+    - pre_merge        # merging PR to main/dev
+    - destructive_migration  # irreversible DB migration
+  # Triggers that ask when the agent is uncertain
+  ask_when_uncertain:
+    - architecture_decision
+    - cost_threshold
+  # Cost (USD) above which to pause and ask
+  cost_threshold_usd: 5.0
+  # How long to wait for human response before timing out
+  timeout_minutes: 60

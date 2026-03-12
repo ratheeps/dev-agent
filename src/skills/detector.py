@@ -38,6 +38,24 @@ JIRA_KEYWORDS: dict[TechStack, list[str]] = {
     TechStack.PYTHON: [
         "python", "fastapi", "django", "flask", "pydantic", "pytest", "asyncio",
     ],
+    TechStack.DESIGN_PATTERNS: [
+        "design pattern", "repository pattern", "action pattern", "state machine",
+        "circuit breaker", "message bus", "adapter pattern", "dependency injection",
+        "observer pattern", "strategy pattern", "factory pattern", "page object",
+        "refactor", "clean code", "solid principle", "separation of concerns",
+    ],
+    TechStack.APP_ARCHITECTURE: [
+        "api contract", "feature slice", "oauth2", "client credentials", "password grant",
+        "api versioning", "cross-service", "multi-repo", "microservice", "storefront",
+        "admin portal", "wallet service", "pim", "pimcore", "service boundary",
+        "architecture", "new feature", "new service",
+    ],
+    TechStack.INFRA_ARCHITECTURE: [
+        "docker", "docker compose", "dockerfile", "nginx", "deploy", "deployment",
+        "infrastructure", "devops", "ci/cd", "pipeline", "aws", "lambda", "bref",
+        "sqs", "s3", "cloudwatch", "terraform", "opentofu", "serverless",
+        "secrets manager", "bedrock", "agentcore", "environment setup",
+    ],
 }
 
 # File path/extension patterns that indicate a tech stack
@@ -75,6 +93,23 @@ REPO_PATTERNS: list[tuple[str, TechStack, float]] = [
     (r"requirements\.txt$", TechStack.PYTHON, 0.7),
     (r"setup\.py$", TechStack.PYTHON, 0.7),
     (r"\.py$", TechStack.PYTHON, 0.3),
+    # Design patterns (high-confidence file paths)
+    (r"^app/Actions/", TechStack.DESIGN_PATTERNS, 0.7),
+    (r"^app/Repositories/", TechStack.DESIGN_PATTERNS, 0.9),
+    (r"^app/Observers/", TechStack.DESIGN_PATTERNS, 0.8),
+    (r"src/resilience/", TechStack.DESIGN_PATTERNS, 0.9),
+    (r"src/workflows/states\.py$", TechStack.DESIGN_PATTERNS, 0.8),
+    # App architecture
+    (r"^src/features/", TechStack.APP_ARCHITECTURE, 0.6),
+    (r"^routes/api\.php$", TechStack.APP_ARCHITECTURE, 0.7),
+    (r"src/services/api\.ts$", TechStack.APP_ARCHITECTURE, 0.7),
+    # Infra architecture
+    (r"docker-compose\.yml$", TechStack.INFRA_ARCHITECTURE, 1.0),
+    (r"Dockerfile$", TechStack.INFRA_ARCHITECTURE, 0.8),
+    (r"serverless\.yml$", TechStack.INFRA_ARCHITECTURE, 1.0),
+    (r"bitbucket-pipelines\.yml$", TechStack.INFRA_ARCHITECTURE, 0.9),
+    (r"\.tf$", TechStack.INFRA_ARCHITECTURE, 0.8),
+    (r"infra/tofu/", TechStack.INFRA_ARCHITECTURE, 0.9),
 ]
 
 # When Next.js is detected, also infer React (Next.js is a React framework)
