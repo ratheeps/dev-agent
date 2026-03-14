@@ -16,7 +16,7 @@ from src.schemas.repository import InfraConfig
 logger = logging.getLogger(__name__)
 
 _HOSTS_FILE = Path("/etc/hosts")
-_MARKER = "# dev-ai: giftbee local domains"
+_MARKER = "# mason: giftbee local domains"
 
 
 class HostManager:

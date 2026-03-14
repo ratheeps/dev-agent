@@ -1,5 +1,9 @@
 aws_region                 = "us-east-1"
 environment                = "production"
-project                    = "dev-ai"
+project                    = "mason"
 daily_cost_alarm_threshold = 10000
-alert_email                = ""
+alert_email                = "ops@giftbee.com"
+vpc_cidr                   = "10.1.0.0/16"
+webhook_desired_count      = 2
+worker_cpu                 = 1024
+worker_memory              = 4096

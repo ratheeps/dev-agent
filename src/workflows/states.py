@@ -169,7 +169,7 @@ class WorkflowContext(BaseModel):
     max_retries: int = 3
     feedback_queue: list[str] = Field(
         default_factory=list,
-        description="Developer feedback injected via Teams @mentions",
+        description="Developer feedback injected via Slack @mentions",
     )
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

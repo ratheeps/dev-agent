@@ -34,10 +34,10 @@ from src.schemas.github import (
     GitHubRepo,
     GitHubUser,
 )
-from src.schemas.teams import (
-    TeamsApprovalRequest,
-    TeamsApprovalResponse,
-    TeamsMessageResponse,
+from src.schemas.slack import (
+    SlackApprovalRequest,
+    SlackApprovalResponse,
+    SlackMessageResponse,
 )
 
 __all__ = [
@@ -72,8 +72,8 @@ __all__ = [
     "GitHubPushFileRequest",
     "GitHubRepo",
     "GitHubUser",
-    # Teams
-    "TeamsApprovalRequest",
-    "TeamsApprovalResponse",
-    "TeamsMessageResponse",
+    # Slack
+    "SlackApprovalRequest",
+    "SlackApprovalResponse",
+    "SlackMessageResponse",
 ]

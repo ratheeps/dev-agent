@@ -50,12 +50,12 @@ ALL_TABLES: list[DynamoTableDefinition] = [SESSION_TABLE, EPISODIC_TABLE, SEMANT
 class MemoryConfig(BaseSettings):
     """Configuration for the memory subsystem.
 
-    Values are loaded from environment variables prefixed with ``DEVAI_MEMORY_``
+    Values are loaded from environment variables prefixed with ``MASON_MEMORY_``
     (case-insensitive).  Fallback defaults are suitable for local development
     against DynamoDB Local.
     """
 
-    model_config = {"env_prefix": "DEVAI_MEMORY_", "case_sensitive": False}
+    model_config = {"env_prefix": "MASON_MEMORY_", "case_sensitive": False}
 
     # AWS / connection
     aws_region: str = Field(default="us-east-1", description="AWS region for DynamoDB")

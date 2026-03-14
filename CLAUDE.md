@@ -1,4 +1,4 @@
-# Dev-AI
+# Mason
 
 ## Project Overview
 Here is a summary of the core concepts and architecture for building this multi-agent system using Claude Code and AWS:
@@ -38,7 +38,8 @@ To minimize human interaction while maintaining safety, the system integrates th
 - **Models:** Claude 4.6 Opus (orchestrator), Claude 4.6 Sonnet (workers)
 - **Cloud:** AWS Bedrock AgentCore Runtime, DynamoDB, API Gateway, CloudWatch
 - **Infrastructure:** OpenTofu (HCL)
-- **MCP integrations:** Atlassian (Jira/Confluence), GitHub, Figma, Microsoft Teams
+- **MCP integrations:** Atlassian (Jira/Confluence), GitHub, Figma
+- **Chat integration:** Slack (Bolt async framework — @mentions, DMs, approval buttons)
 - **Testing:** pytest, pytest-asyncio
 - **Linting:** ruff, mypy (strict mode)
 - **Serialization:** Pydantic v2
@@ -46,9 +47,12 @@ To minimize human interaction while maintaining safety, the system integrates th
 
 ## Structure
 ```
-dev-ai/
+mason/
   .mcp.json              # Shared MCP server config
   pyproject.toml          # Project deps (uv)
+  docker-compose.prod.yml # Production Docker Compose (Lightsail)
+  Dockerfile.webhook      # Webhook server image
+  Dockerfile.worker       # SQS worker image
   config/
     agents.yaml           # Agent model/timeout config
     limits.yaml           # Cost, rate, concurrency limits
@@ -74,8 +78,10 @@ dev-ai/
     security/             # Input sanitization, audit logging
     resilience/           # Circuit breakers, rate limiters
   tests/
-  infra/tofu/            # OpenTofu modules (memory, runtime, gateway, observability)
-  scripts/               # deploy.sh, setup-aws.sh
+  infra/
+    lightsail/           # Lightsail eval deployment (current)
+    tofu/                # Full AWS infra — ECS/Fargate (future)
+  scripts/               # deploy.sh, deploy-lightsail.sh, setup-aws.sh
   docs/                  # Runbook, architecture
 ```
 
@@ -96,15 +102,18 @@ mypy src/
 python -m src.handlers.manual_trigger --ticket GIFT-1234
 python -m src.handlers.manual_trigger --ticket GIFT-1234 --bedrock  # real LLM
 
-# Infrastructure (OpenTofu)
+# Deploy to Lightsail (evaluation)
+./scripts/deploy-lightsail.sh setup    # first-time: create instance + DynamoDB + SQS
+./scripts/deploy-lightsail.sh deploy   # rsync + docker compose up
+./scripts/deploy-lightsail.sh logs     # tail logs
+./scripts/deploy-lightsail.sh status   # check health
+./scripts/deploy-lightsail.sh ssh      # open SSH session
+
+# Full AWS infra (future — ECS/Fargate)
 cd infra/tofu
 tofu init
 tofu plan -var-file=envs/staging/terraform.tfvars
 tofu apply -var-file=envs/staging/terraform.tfvars
-
-# Or use the deploy script
-./scripts/deploy.sh staging plan
-./scripts/deploy.sh staging apply
 ```
 
 ## Conventions
@@ -115,5 +124,5 @@ tofu apply -var-file=envs/staging/terraform.tfvars
 - **No mocks for integration tests:** Test against real MCP servers (use dedicated test resources).
 - **Imports:** Use absolute imports from `src.` (e.g., `from src.integrations.atlassian.jira_client import JiraClient`).
 - **Naming:** snake_case for files/functions, PascalCase for classes, UPPER_CASE for constants.
-- **Error handling:** Raise typed exceptions. Workers retry once, then escalate to Teams.
+- **Error handling:** Raise typed exceptions. Workers retry once, then escalate to Slack.
 - **Secrets:** Never in code or git. Use `.env` locally, AWS Secrets Manager in production.

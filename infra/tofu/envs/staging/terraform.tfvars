@@ -1,5 +1,9 @@
 aws_region                 = "us-east-1"
 environment                = "staging"
-project                    = "dev-ai"
+project                    = "mason"
 daily_cost_alarm_threshold = 5000
 alert_email                = ""
+vpc_cidr                   = "10.0.0.0/16"
+webhook_desired_count      = 1
+worker_cpu                 = 1024
+worker_memory              = 2048

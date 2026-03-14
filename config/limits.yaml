@@ -11,7 +11,7 @@ rate_limits:
   jira_rpm: 60
   github_rpm: 60
   figma_rpm: 30
-  teams_rpm: 30
+  slack_rpm: 30
 
 workers:
   max_concurrent: 5

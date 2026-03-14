@@ -1,5 +1,5 @@
 [project]
-name = "dev-ai"
+name = "mason"
 version = "0.1.0"
 description = "Multi-agent AI system for automated software delivery"
 requires-python = ">=3.10"
@@ -13,6 +13,9 @@ dependencies = [
     "anyio>=4.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "slack-bolt>=1.18",
+    "slack-sdk>=3.27",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]

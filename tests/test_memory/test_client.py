@@ -333,7 +333,7 @@ class TestSemanticMemory:
 
         md_file = tmp_path / "CLAUDE.md"
         md_file.write_text(
-            "# Dev-AI\n\n"
+            "# Mason\n\n"
             "## Project Overview\n"
             "This is a multi-agent system.\n\n"
             "## Conventions\n"

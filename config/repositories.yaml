@@ -1,5 +1,5 @@
 infra:
-  local_infra_path: /home/ratheepan/workspace/giftbee/local-infra
+  local_infra_path: ${MASON_WORKSPACE_ROOT}/local-infra
   task_binary: task  # Taskfile CLI
   host_entries:
     - "127.0.0.1 wallet.giftbee.test"
@@ -32,7 +32,7 @@ repositories:
     tech_stacks: [php, laravel, react, typescript]
     jira_labels: [wallet, api, backend, wallet-service]
     jira_components: [Wallet Service, API, Backend]
-    local_path: /home/ratheepan/workspace/giftbee/wallet-service
+    local_path: ${MASON_WORKSPACE_ROOT}/wallet-service
     dev_url: https://wallet.giftbee.test
     task_up: wallet-service:up
     task_down: wallet-service:down
@@ -50,7 +50,7 @@ repositories:
     tech_stacks: [nextjs, react, typescript]
     jira_labels: [storefront, store-front, frontend, customer, myaccount]
     jira_components: [Store Front, Customer Portal, My Account]
-    local_path: /home/ratheepan/workspace/giftbee/store-front
+    local_path: ${MASON_WORKSPACE_ROOT}/store-front
     dev_url: https://myaccount.giftbee.test
     task_up: store-front:up
     task_down: store-front:down
@@ -71,7 +71,7 @@ repositories:
     tech_stacks: [nextjs, react, typescript]
     jira_labels: [admin, corporate, backoffice, portal, admin-portal]
     jira_components: [Admin Portal, Corporate Portal, Backoffice]
-    local_path: /home/ratheepan/workspace/giftbee/admin-portal
+    local_path: ${MASON_WORKSPACE_ROOT}/admin-portal
     dev_url: https://admin.giftbee.test
     task_up: admin-portal:up
     task_down: admin-portal:down
@@ -92,7 +92,7 @@ repositories:
     tech_stacks: [php]
     jira_labels: [pim, catalog, pimcore, product]
     jira_components: [PIM, Product Catalog, Pimcore]
-    local_path: /home/ratheepan/workspace/giftbee/pim
+    local_path: ${MASON_WORKSPACE_ROOT}/pim
     dev_url: http://pim.giftbee.test
     task_up: pim:up
     task_down: pim:down
@@ -109,7 +109,7 @@ repositories:
     tech_stacks: []
     jira_labels: [infra, docker, devops]
     jira_components: [Infrastructure, DevOps]
-    local_path: /home/ratheepan/workspace/giftbee/local-infra
+    local_path: ${MASON_WORKSPACE_ROOT}/local-infra
     dev_url: null
     task_up: base:up
     task_down: base:down

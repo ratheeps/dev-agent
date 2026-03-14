@@ -1,0 +1,54 @@
+services:
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    container_name: mason-webhook
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - MASON_SLACK_BOT_TOKEN=${MASON_SLACK_BOT_TOKEN}
+      - MASON_SLACK_SIGNING_SECRET=${MASON_SLACK_SIGNING_SECRET}
+      - MASON_SLACK_NOTIFICATION_CHANNEL=${MASON_SLACK_NOTIFICATION_CHANNEL:-mason-notifications}
+      - MASON_SLACK_APPROVAL_CHANNEL=${MASON_SLACK_APPROVAL_CHANNEL:-mason-approvals}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: mason-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - SQS_QUEUE_URL=${SQS_QUEUE_URL}
+      - MASON_SLACK_BOT_TOKEN=${MASON_SLACK_BOT_TOKEN}
+      - MASON_SLACK_NOTIFICATION_CHANNEL=${MASON_SLACK_NOTIFICATION_CHANNEL:-mason-notifications}
+      - MASON_SLACK_APPROVAL_CHANNEL=${MASON_SLACK_APPROVAL_CHANNEL:-mason-approvals}
+    volumes:
+      # Mount workspace for git operations
+      - workspace:/workspace
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  workspace:

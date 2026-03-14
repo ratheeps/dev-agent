@@ -95,3 +95,25 @@ def sanitize_mcp_args(args: dict[str, Any]) -> dict[str, Any]:
         else:
             sanitized[key] = value
     return sanitized
+
+
+# Slack mrkdwn control characters that should be stripped from injected content
+_SLACK_INJECTION_PATTERN = re.compile(r"[<>]")
+
+
+def sanitize_slack_text(text: str, max_length: int = MAX_SUMMARY_LENGTH) -> str:
+    """Sanitize Slack @mention text before intent parsing.
+
+    Strips Slack mrkdwn angle brackets (used for links/mentions), truncates
+    to ``max_length``, and removes any dangerous shell/script patterns.
+
+    Parameters
+    ----------
+    text:
+        Raw text from a Slack app_mention or DM event (already stripped of
+        ``<@BOTID>`` by the Bolt handler or SlackMentionEvent.clean_text).
+    max_length:
+        Maximum character length (default: MAX_SUMMARY_LENGTH = 500).
+    """
+    text = _SLACK_INJECTION_PATTERN.sub("", text)
+    return sanitize_text(text, max_length=max_length)

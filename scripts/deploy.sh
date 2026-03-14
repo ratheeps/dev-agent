@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Dev-AI infrastructure using OpenTofu.
+# Deploy Mason infrastructure using OpenTofu.
 #
 # Usage:
 #   ./scripts/deploy.sh [staging|production]
@@ -19,7 +19,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOFU_DIR="$PROJECT_ROOT/infra/tofu"
 TFVARS_FILE="$TOFU_DIR/envs/$ENVIRONMENT/terraform.tfvars"
 
-echo "=== Dev-AI Deployment ==="
+echo "=== Mason Deployment ==="
 echo "Environment: $ENVIRONMENT"
 echo "Action:      $ACTION"
 echo "Tofu dir:    $TOFU_DIR"
@@ -47,7 +47,9 @@ echo ""
 # Initialize
 cd "$TOFU_DIR"
 echo "Initializing OpenTofu..."
-tofu init -input=false
+tofu init -input=false \
+  -backend-config="bucket=${MASON_TF_STATE_BUCKET:-giftbee-tofu-state}" \
+  -backend-config="dynamodb_table=${MASON_TF_LOCK_TABLE:-giftbee-tofu-locks}"
 
 # Plan or apply
 case "$ACTION" in

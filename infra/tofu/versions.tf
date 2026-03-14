@@ -9,10 +9,12 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "giftbee-tofu-state"
-    key            = "dev-ai/terraform.tfstate"
+    # Real values are passed at init time via -backend-config flags.
+    # See scripts/deploy.sh and .github/workflows/deploy.yml.
+    bucket         = "placeholder"
+    key            = "mason/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "giftbee-tofu-locks"
+    dynamodb_table = "placeholder"
     encrypt        = true
   }
 }

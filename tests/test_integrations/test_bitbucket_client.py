@@ -64,7 +64,7 @@ class TestBitbucketClientCreatePR:
             "links": {"html": {"href": "https://bitbucket.org/giftbee/wallet-service/pull-requests/42"}},
             "title": "feat: add balance API",
             "description": "Adds balance endpoint",
-            "source": {"branch": {"name": "dev-ai/GIFT-1234"}},
+            "source": {"branch": {"name": "mason/GIFT-1234"}},
             "destination": {"branch": {"name": "dev"}},
             "state": "OPEN",
         }
@@ -79,12 +79,12 @@ class TestBitbucketClientCreatePR:
                 repo="wallet-service",
                 title="feat: add balance API",
                 body="Adds balance endpoint",
-                head_branch="dev-ai/GIFT-1234",
+                head_branch="mason/GIFT-1234",
                 base_branch="dev",
             )
 
         assert pr.number == 42
-        assert pr.head_branch == "dev-ai/GIFT-1234"
+        assert pr.head_branch == "mason/GIFT-1234"
         assert pr.base_branch == "dev"
         assert pr.state == "open"
 
@@ -109,7 +109,7 @@ class TestBitbucketClientCreatePR:
                     repo="wallet-service",
                     title="test",
                     body="",
-                    head_branch="dev-ai/GIFT-1234",
+                    head_branch="mason/GIFT-1234",
                     base_branch="dev",
                 )
 
@@ -123,7 +123,7 @@ class TestBitbucketClientGetPR:
             "links": {"html": {"href": "https://bitbucket.org/giftbee/wallet-service/pull-requests/42"}},
             "title": "feat: test",
             "description": "",
-            "source": {"branch": {"name": "dev-ai/GIFT-1234"}},
+            "source": {"branch": {"name": "mason/GIFT-1234"}},
             "destination": {"branch": {"name": "dev"}},
             "state": "MERGED",
         }
@@ -161,7 +161,7 @@ class TestBitbucketClientCreateBranch:
         client = _make_client()
         # create_branch calls GET (resolve SHA) then POST (create branch)
         source_ref_data = {"target": {"hash": "abc123"}}
-        branch_data = {"name": "dev-ai/GIFT-1234", "target": {"hash": "abc123"}}
+        branch_data = {"name": "mason/GIFT-1234", "target": {"hash": "abc123"}}
         mock_inner = _mock_http_client(
             {"json": source_ref_data},   # GET /refs/branches/dev
             {"json": branch_data, "status": 201},  # POST /refs/branches
@@ -174,11 +174,11 @@ class TestBitbucketClientCreateBranch:
         with patch.object(client, "_client", side_effect=_mock_client_ctx):
             branch = await client.create_branch(
                 repo="wallet-service",
-                branch="dev-ai/GIFT-1234",
+                branch="mason/GIFT-1234",
                 from_ref="dev",
             )
 
-        assert branch.name == "dev-ai/GIFT-1234"
+        assert branch.name == "mason/GIFT-1234"
         assert branch.sha == "abc123"
 
 

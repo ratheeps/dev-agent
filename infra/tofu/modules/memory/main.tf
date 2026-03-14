@@ -1,4 +1,4 @@
-# DynamoDB tables for the Dev-AI memory subsystem
+# DynamoDB tables for the Mason memory subsystem
 
 resource "aws_dynamodb_table" "session_memory" {
   name         = "${var.project}-session-memory"
@@ -16,9 +16,32 @@ resource "aws_dynamodb_table" "session_memory" {
     type = "N"
   }
 
+  attribute {
+    name = "agent_id"
+    type = "S"
+  }
+
   ttl {
     attribute_name = "ttl"
     enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn != "" ? var.kms_key_arn : null
+  }
+
+  deletion_protection_enabled = var.environment == "production"
+
+  global_secondary_index {
+    name            = "agent_id-index"
+    hash_key        = "agent_id"
+    range_key       = "timestamp"
+    projection_type = "ALL"
   }
 
   tags = {
@@ -42,6 +65,29 @@ resource "aws_dynamodb_table" "episodic_memory" {
     type = "S"
   }
 
+  attribute {
+    name = "task_id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn != "" ? var.kms_key_arn : null
+  }
+
+  deletion_protection_enabled = var.environment == "production"
+
+  global_secondary_index {
+    name            = "task_id-index"
+    hash_key        = "task_id"
+    range_key       = "episode_id"
+    projection_type = "ALL"
+  }
+
   tags = {
     component = "memory"
   }
@@ -62,6 +108,17 @@ resource "aws_dynamodb_table" "semantic_memory" {
     name = "key"
     type = "S"
   }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = var.kms_key_arn != "" ? var.kms_key_arn : null
+  }
+
+  deletion_protection_enabled = var.environment == "production"
 
   tags = {
     component = "memory"

@@ -1,4 +1,4 @@
-"""Dev-AI memory subsystem — session, episodic, and semantic memory."""
+"""Mason memory subsystem — session, episodic, and semantic memory."""
 
 from src.memory.client import MemoryClient
 from src.memory.config import MemoryConfig

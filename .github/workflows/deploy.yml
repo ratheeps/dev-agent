@@ -1,0 +1,129 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT: mason
+
+jobs:
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    outputs:
+      webhook_image: ${{ steps.build.outputs.webhook_image }}
+      worker_image: ${{ steps.build.outputs.worker_image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push images
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f Dockerfile.webhook -t $ECR_REGISTRY/$PROJECT-webhook:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$PROJECT-webhook:$IMAGE_TAG
+          echo "webhook_image=$ECR_REGISTRY/$PROJECT-webhook:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+          docker build -f Dockerfile.worker -t $ECR_REGISTRY/$PROJECT-worker:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$PROJECT-worker:$IMAGE_TAG
+          echo "worker_image=$ECR_REGISTRY/$PROJECT-worker:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+  deploy-infra:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8"
+
+      - name: Tofu Init
+        working-directory: infra/tofu
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET || 'giftbee-tofu-state' }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE || 'giftbee-tofu-locks' }}"
+
+      - name: Tofu Plan
+        working-directory: infra/tofu
+        run: |
+          ENV="${{ github.event.inputs.environment || 'staging' }}"
+          tofu plan -var-file=envs/$ENV/terraform.tfvars -out=tfplan
+
+      - name: Tofu Apply
+        working-directory: infra/tofu
+        run: tofu apply -auto-approve tfplan
+
+  deploy-services:
+    name: Deploy ECS Services
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-infra]
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update webhook service
+        run: |
+          aws ecs update-service \
+            --cluster $PROJECT-cluster \
+            --service $PROJECT-webhook \
+            --force-new-deployment
+
+      - name: Update worker service
+        run: |
+          aws ecs update-service \
+            --cluster $PROJECT-cluster \
+            --service $PROJECT-worker \
+            --force-new-deployment
+
+      - name: Wait for webhook stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster $PROJECT-cluster \
+            --services $PROJECT-webhook

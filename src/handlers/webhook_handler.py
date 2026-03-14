@@ -1,8 +1,8 @@
 """Async webhook handler for Jira webhook events.
 
 Designed to be mounted on an API Gateway or any async HTTP framework.
-Validates the webhook payload, extracts the ticket key, and spawns
-the workflow pipeline.
+Validates the webhook payload, extracts the ticket key, and publishes
+the task to SQS for worker processing.
 """
 
 from __future__ import annotations
@@ -11,8 +11,10 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 from typing import Any
 
+import boto3
 from pydantic import BaseModel, Field
 
 from src.agents.communication import MessageBus
@@ -81,6 +83,27 @@ def validate_webhook_signature(
     return hmac.compare_digest(f"sha256={expected}", signature)
 
 
+def _send_to_sqs(queue_url: str, issue_key: str, event: WebhookEvent) -> str:
+    """Send a task message to SQS. Returns the SQS message ID."""
+    sqs = boto3.client("sqs", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    response = sqs.send_message(
+        QueueUrl=queue_url,
+        MessageBody=json.dumps({
+            "issue_key": issue_key,
+            "event_type": event.event_type,
+            "project_key": event.project_key,
+            "summary": event.summary,
+        }),
+        MessageAttributes={
+            "EventType": {
+                "DataType": "String",
+                "StringValue": event.event_type,
+            },
+        },
+    )
+    return response["MessageId"]
+
+
 async def handle_webhook(
     body: bytes,
     headers: dict[str, str],
@@ -135,7 +158,21 @@ async def handle_webhook(
         event.summary,
     )
 
-    # Spawn pipeline in background
+    # Route to SQS if queue URL is configured, otherwise run in-process
+    queue_url = os.environ.get("SQS_QUEUE_URL", "")
+
+    if queue_url:
+        message_id = await asyncio.get_event_loop().run_in_executor(
+            None, _send_to_sqs, queue_url, event.issue_key, event
+        )
+        logger.info("Task queued to SQS: %s (message_id=%s)", event.issue_key, message_id)
+        return WebhookResponse(
+            status=202,
+            message=f"Task queued for {event.issue_key}",
+            workflow_id=event.issue_key,
+        )
+
+    # Fallback: spawn pipeline in background (local development)
     async def _run_pipeline() -> None:
         try:
             async def _noop_mcp(tool: str, args: dict[str, Any]) -> Any:
@@ -159,7 +196,7 @@ async def handle_webhook(
         finally:
             MCPManager.reset()
 
-    task = asyncio.create_task(_run_pipeline())
+    asyncio.create_task(_run_pipeline())
 
     return WebhookResponse(
         status=202,

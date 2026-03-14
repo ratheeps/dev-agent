@@ -10,14 +10,32 @@ import logging
 from typing import Any
 
 from src.agents.bedrock_client import InvocationResult, ToolDefinition
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
+
+def _build_model_name_map() -> dict[str, str]:
+    """Derive SDK model names from settings (strip ``us.anthropic.`` prefix and version suffix)."""
+    settings = get_settings()
+    result: dict[str, str] = {}
+    for short_name, bedrock_id in [
+        ("claude-opus-4-6", settings.opus_model_id),
+        ("claude-sonnet-4-6", settings.sonnet_model_id),
+    ]:
+        # "us.anthropic.claude-opus-4-6-20250609-v1:0" → "claude-opus-4-6-20250609"
+        name = bedrock_id
+        if name.startswith("us.anthropic."):
+            name = name[len("us.anthropic."):]
+        # Remove trailing version suffix like "-v1:0"
+        if ":0" in name:
+            name = name[: name.rindex("-v")]
+        result[short_name] = name
+    return result
+
+
 # Map our config model names to Claude model identifiers
-MODEL_NAME_MAP: dict[str, str] = {
-    "claude-opus-4-6": "claude-opus-4-6-20250609",
-    "claude-sonnet-4-6": "claude-sonnet-4-6-20250514",
-}
+MODEL_NAME_MAP: dict[str, str] = _build_model_name_map()
 
 # Approximate cost per 1M tokens (USD) — mirrors bedrock_client.py for cost parity
 SDK_MODEL_COSTS: dict[str, dict[str, float]] = {

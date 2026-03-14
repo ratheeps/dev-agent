@@ -1,11 +1,11 @@
-"""FastAPI webhook server for receiving Teams card actions and @mentions.
+"""FastAPI webhook server — Slack events, approvals, and health.
 
 Endpoints
 ---------
-POST /webhooks/teams/approval   Teams Adaptive Card Approve/Reject button click
-POST /webhooks/teams/message    Teams @mention / incoming message
-GET  /approvals/{id}            Query approval request status
-GET  /health                    Health check
+POST /slack/events          All Slack events (mentions, DMs, button actions)
+                            handled by Slack Bolt via AsyncSlackRequestHandler.
+GET  /approvals/{id}        Query approval request status
+GET  /health                Health check
 """
 
 from __future__ import annotations
@@ -19,14 +19,13 @@ from fastapi.responses import JSONResponse
 
 from src.handlers.webhook_models import (
     ApprovalStatusResponse,
-    TeamsCardActionPayload,
-    TeamsMentionPayload,
     WebhookHealthResponse,
 )
 
 if TYPE_CHECKING:
-    from src.integrations.teams.approval_flow import ApprovalFlow
-    from src.integrations.teams.conversation_handler import AgentConversationHandler
+    from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
+
+    from src.integrations.notifications.approval_flow import ApprovalFlow
 
 logger = logging.getLogger(__name__)
 
@@ -38,90 +37,47 @@ logger = logging.getLogger(__name__)
 def create_webhook_app(
     *,
     approval_flow: "ApprovalFlow",
-    conversation_handler: "AgentConversationHandler",
+    bolt_handler: "AsyncSlackRequestHandler",
 ) -> FastAPI:
     """Create and configure the FastAPI webhook application.
 
     Parameters
     ----------
     approval_flow:
-        Shared `ApprovalFlow` instance — the same one used by the pipeline.
-    conversation_handler:
-        `AgentConversationHandler` instance wired to active pipelines.
+        Shared ``ApprovalFlow`` instance — the same one used by the pipeline.
+    bolt_handler:
+        ``AsyncSlackRequestHandler`` wrapping the configured Slack Bolt app.
+        All Slack events (mentions, DMs, button clicks) are routed through this.
     """
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        logger.info("Webhook server starting — approval_flow ready")
+        logger.info("Webhook server starting — Slack Bolt handler ready")
         yield
         logger.info("Webhook server shutting down")
 
     app = FastAPI(
-        title="Dev-AI Teams Webhook",
-        description="Receives Teams card actions and @mentions for human-in-the-loop.",
+        title="Mason Slack Webhook",
+        description="Receives Slack events and @mentions for human-in-the-loop.",
         version="1.0.0",
         lifespan=lifespan,
     )
 
     # ------------------------------------------------------------------
-    # POST /webhooks/teams/approval
+    # POST /slack/events  — Slack Bolt handles everything:
+    #   • app_mention  → SlackConversationHandler
+    #   • message (im) → SlackConversationHandler
+    #   • block_actions (approve_button/reject_button) → SlackApprovalAdapter
     # ------------------------------------------------------------------
 
-    @app.post("/webhooks/teams/approval", status_code=status.HTTP_200_OK)
-    async def teams_approval(payload: TeamsCardActionPayload) -> dict[str, Any]:
-        """Receive an Approve/Reject card action from Teams.
+    @app.post("/slack/events")
+    async def slack_events(req: Request) -> Any:
+        """Receive all Slack events via the Bolt request handler.
 
-        Called by Teams when a user clicks an Approve or Reject button
-        on an Adaptive Card sent by the agent.
+        Slack sends all event types (mentions, DMs, button interactions)
+        to this single endpoint. Bolt dispatches internally.
         """
-        logger.info(
-            "Webhook: approval action request_id=%s approved=%s responder=%s",
-            payload.request_id,
-            payload.approved,
-            payload.responder,
-        )
-
-        request = approval_flow.get_request(payload.request_id)
-        if request is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Approval request '{payload.request_id}' not found or already resolved.",
-            )
-
-        approval_flow.resolve(
-            payload.request_id,
-            approved=payload.approved,
-            responder=payload.responder,
-        )
-
-        action = "approved" if payload.approved else "rejected"
-        return {
-            "status": "ok",
-            "request_id": payload.request_id,
-            "action": action,
-            "responder": payload.responder,
-        }
-
-    # ------------------------------------------------------------------
-    # POST /webhooks/teams/message
-    # ------------------------------------------------------------------
-
-    @app.post("/webhooks/teams/message", status_code=status.HTTP_200_OK)
-    async def teams_message(payload: TeamsMentionPayload) -> dict[str, Any]:
-        """Receive an @mention or message from Teams.
-
-        Dispatches to `AgentConversationHandler` which detects intent
-        and routes to the active pipeline.
-        """
-        logger.info(
-            "Webhook: @mention from %s channel=%s text=%r",
-            payload.sender,
-            payload.channel_id,
-            payload.text[:80],
-        )
-
-        reply = await conversation_handler.handle_mention(payload)
-        return {"status": "ok", "reply": reply}
+        return await bolt_handler.handle(req)
 
     # ------------------------------------------------------------------
     # GET /approvals/{request_id}

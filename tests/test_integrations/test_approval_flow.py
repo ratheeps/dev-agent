@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.integrations.teams.approval_flow import (
+from src.integrations.notifications.approval_flow import (
     ApprovalFlow,
     ApprovalRequest,
     ApprovalStatus,
@@ -17,12 +17,12 @@ from src.integrations.teams.approval_flow import (
 
 
 def _make_flow(timeout: int = 60) -> ApprovalFlow:
-    teams_mock = AsyncMock()
-    teams_mock.send_approval_request = AsyncMock(
-        return_value=MagicMock(message_id="msg1", callback_id="cb1", status="pending")
+    notifier_mock = AsyncMock()
+    notifier_mock.send_approval_request = AsyncMock(
+        return_value=MagicMock(ts="ts1", callback_id="cb1", status="pending")
     )
-    teams_mock.send_message = AsyncMock()
-    return ApprovalFlow(teams_client=teams_mock, timeout=timeout)
+    notifier_mock.send_message = AsyncMock()
+    return ApprovalFlow(notification_client=notifier_mock, timeout=timeout)
 
 
 class TestApprovalFlowResolve:
@@ -32,7 +32,6 @@ class TestApprovalFlowResolve:
 
         async def _approve_after_short_delay() -> None:
             await asyncio.sleep(0.05)
-            # Find the pending request and resolve it
             for req_id in list(flow._pending.keys()):  # noqa: SLF001
                 flow.resolve(req_id, approved=True, responder="alice")
 

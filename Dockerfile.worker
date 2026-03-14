@@ -1,0 +1,22 @@
+FROM python:3.12-slim AS base
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js for MCP tools (Teams connector, Playwright)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir uv && uv pip install --system -e "."
+
+COPY src/ src/
+COPY config/ config/
+COPY CLAUDE.md ./
+
+CMD ["python", "-m", "src.runtime.entrypoint"]

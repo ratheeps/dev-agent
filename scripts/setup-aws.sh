@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------
-# setup-aws.sh — Bootstrap AWS resources for the Dev-AI memory layer
+# setup-aws.sh — Bootstrap AWS resources for the Mason memory layer
 #
 # Usage:
 #   ./scripts/setup-aws.sh [--region us-east-1]
@@ -68,7 +68,7 @@ else
     aws iam create-policy \
         --policy-name "${POLICY_NAME}" \
         --policy-document "${POLICY_DOC}" \
-        --description "Dev-AI memory subsystem DynamoDB access" \
+        --description "Mason memory subsystem DynamoDB access" \
         --region "${REGION}" \
         > /dev/null
     echo "    Policy created."

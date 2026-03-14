@@ -8,7 +8,8 @@ from typing import Any
 
 from src.integrations.github.repo_client import GitHubRepoClient
 from src.integrations.mcp_manager import MCPManager
-from src.integrations.teams.notification_client import TeamsNotificationClient
+from src.integrations.slack.notification_client import SlackNotificationClient
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class ReviewLoopHandler:
         owner: str,
         repo: str,
         github_client: GitHubRepoClient,
-        teams_client: TeamsNotificationClient,
+        slack_client: SlackNotificationClient,
         poll_interval: int = DEFAULT_POLL_INTERVAL,
         timeout: int = DEFAULT_REVIEW_TIMEOUT,
     ) -> dict[str, Any]:
@@ -112,16 +113,16 @@ class ReviewLoopHandler:
             ]
             for c in new_comments:
                 seen_comments.add(c.get("id", ""))
-                await self._handle_comment(c, pr_number, teams_client)
+                await self._handle_comment(c, pr_number, slack_client)
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
         # Timed out
         logger.warning("ReviewLoop: PR #%d review timed out after %ds", pr_number, timeout)
-        await teams_client.send_message(
-            channel_id="dev-ai-notifications",
-            message=f"**Review timeout**: PR #{pr_number} has been waiting for review for {timeout // 60} minutes.",
+        await slack_client.send_message(
+            channel_id=get_settings().slack_notification_channel,
+            message=f"*Review timeout*: PR #{pr_number} has been waiting for review for {timeout // 60} minutes.",
         )
         return {"approved": False, "changes_requested": False, "comments": [], "timed_out": True}
 
@@ -129,7 +130,7 @@ class ReviewLoopHandler:
         self,
         comment: dict[str, Any],
         pr_number: int,
-        teams_client: TeamsNotificationClient,
+        slack_client: SlackNotificationClient,
     ) -> None:
         """Process a new review comment."""
         body = comment.get("body", "")

@@ -15,7 +15,7 @@ from src.schemas.repository import RepositoryConfig
 
 logger = logging.getLogger(__name__)
 
-BRANCH_PREFIX = "dev-ai"
+BRANCH_PREFIX = "mason"
 
 
 async def _run_git(
@@ -96,7 +96,7 @@ class WorkspaceManager:
     # ------------------------------------------------------------------
 
     async def create_branch(self, repo: RepositoryConfig, jira_key: str) -> str:
-        """Create and checkout feature branch ``dev-ai/{jira_key}``.
+        """Create and checkout feature branch ``mason/{jira_key}``.
 
         If the branch already exists locally, just checks it out.
         Returns the branch name.

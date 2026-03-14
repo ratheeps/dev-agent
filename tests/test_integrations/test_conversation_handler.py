@@ -1,16 +1,13 @@
-"""Tests for AgentConversationHandler intent detection and dispatch."""
+"""Tests for SlackConversationHandler intent detection and dispatch."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.integrations.teams.conversation_handler import (
-    AgentConversationHandler,
-    IntentType,
-    detect_intent,
-)
+from src.integrations.notifications.intent import IntentType, detect_intent
+from src.integrations.slack.conversation_handler import SlackConversationHandler
 
 
 class TestDetectIntent:
@@ -52,49 +49,36 @@ class TestDetectIntent:
         assert detect_intent("hi") == IntentType.UNKNOWN
 
     def test_long_instruction_defaults_clarify(self) -> None:
-        # Generic instruction — doesn't match any keyword pattern but long enough
         result = detect_intent("make the button red and centered")
         assert result == IntentType.CLARIFY
 
 
-def _make_handler(pipelines: dict | None = None) -> tuple[AgentConversationHandler, MagicMock, MagicMock]:
-    teams_mock = AsyncMock()
-    teams_mock.send_message = AsyncMock()
-    teams_mock.send_threaded_reply = AsyncMock()
+def _make_handler(
+    pipelines: dict | None = None,
+) -> tuple[SlackConversationHandler, MagicMock, MagicMock]:
+    slack_mock = AsyncMock()
+    slack_mock.send_message = AsyncMock()
+    slack_mock.send_threaded_reply = AsyncMock()
 
     approval_mock = MagicMock()
     approval_mock.pending_count = 0
     approval_mock._pending = {}  # noqa: SLF001
 
-    handler = AgentConversationHandler(
-        teams_client=teams_mock,
+    handler = SlackConversationHandler(
+        slack_client=slack_mock,
         approval_flow=approval_mock,
         pipeline_registry=pipelines or {},
     )
-    return handler, teams_mock, approval_mock
-
-
-def _make_payload(
-    text: str,
-    sender: str = "alice",
-    channel_id: str = "dev-ai",
-    thread_id: str = "thread123",
-) -> MagicMock:
-    payload = MagicMock()
-    payload.text = text
-    payload.clean_text = text.replace("@DevAI", "").strip()
-    payload.sender = sender
-    payload.channel_id = channel_id
-    payload.thread_id = thread_id
-    return payload
+    return handler, slack_mock, approval_mock
 
 
 class TestHandlerStatus:
     @pytest.mark.asyncio
     async def test_status_no_active_tasks(self) -> None:
-        handler, teams_mock, _ = _make_handler()
-        payload = _make_payload("@DevAI status")
-        reply = await handler.handle_mention(payload)
+        handler, _, _ = _make_handler()
+        reply = await handler.handle_mention(
+            user="U123", text="status", channel="C01", ts="ts1"
+        )
         assert "No active tasks" in reply
 
     @pytest.mark.asyncio
@@ -105,16 +89,27 @@ class TestHandlerStatus:
         pipeline._context.pr_url = ""
 
         handler, _, _ = _make_handler(pipelines={"GIFT-1234": pipeline})
-        payload = _make_payload("@DevAI what's happening")
-        reply = await handler.handle_mention(payload)
+        reply = await handler.handle_mention(
+            user="U123", text="what's happening", channel="C01", ts="ts1"
+        )
         assert "GIFT-1234" in reply
 
     @pytest.mark.asyncio
     async def test_reply_sent_in_thread(self) -> None:
-        handler, teams_mock, _ = _make_handler()
-        payload = _make_payload("@DevAI status", thread_id="thread-abc")
-        await handler.handle_mention(payload)
-        teams_mock.send_threaded_reply.assert_called_once()
+        handler, slack_mock, _ = _make_handler()
+        await handler.handle_mention(
+            user="U123", text="status", channel="C01", ts="ts1", thread_ts="parent-ts"
+        )
+        slack_mock.send_threaded_reply.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reply_starts_thread_when_no_thread_ts(self) -> None:
+        handler, slack_mock, _ = _make_handler()
+        await handler.handle_mention(
+            user="U123", text="status", channel="C01", ts="ts1"
+        )
+        # Uses ts as thread_ts when no existing thread
+        slack_mock.send_threaded_reply.assert_called_once()
 
 
 class TestHandlerApprove:
@@ -122,13 +117,14 @@ class TestHandlerApprove:
     async def test_approve_no_pending(self) -> None:
         handler, _, approval_mock = _make_handler()
         approval_mock.pending_count = 0
-        payload = _make_payload("@DevAI approved")
-        reply = await handler.handle_mention(payload)
+        reply = await handler.handle_mention(
+            user="U123", text="approved", channel="C01", ts="ts1"
+        )
         assert "No pending" in reply
 
     @pytest.mark.asyncio
     async def test_approve_resolves_pending(self) -> None:
-        from src.integrations.teams.approval_flow import ApprovalRequest, _PendingApproval
+        from src.integrations.notifications.approval_flow import ApprovalRequest, _PendingApproval
 
         req = ApprovalRequest(title="test", description="test")
         pending = _PendingApproval(req)
@@ -138,8 +134,9 @@ class TestHandlerApprove:
         approval_mock._pending = {req.id: pending}  # noqa: SLF001
         approval_mock.resolve = MagicMock()
 
-        payload = _make_payload("@DevAI approved, go ahead", sender="alice")
-        reply = await handler.handle_mention(payload)
+        reply = await handler.handle_mention(
+            user="U456", text="approved, go ahead", channel="C01", ts="ts1"
+        )
         assert "Approved" in reply
         approval_mock.resolve.assert_called_once()
 
@@ -154,18 +151,31 @@ class TestHandlerFeedback:
         pipeline._context.pr_url = ""
 
         handler, _, _ = _make_handler(pipelines={"GIFT-1234": pipeline})
-        payload = _make_payload("@DevAI use Composition API instead of Options API")
-        reply = await handler.handle_mention(payload)
-
+        reply = await handler.handle_mention(
+            user="U123",
+            text="use Composition API instead of Options API",
+            channel="C01",
+            ts="ts1",
+        )
         pipeline.inject_feedback.assert_called_once()
         assert "Got it" in reply or "Feedback" in reply
 
     @pytest.mark.asyncio
     async def test_feedback_no_pipeline(self) -> None:
         handler, _, _ = _make_handler(pipelines={})
-        payload = _make_payload("@DevAI use REST not GraphQL")
-        reply = await handler.handle_mention(payload)
+        reply = await handler.handle_mention(
+            user="U123", text="use REST not GraphQL", channel="C01", ts="ts1"
+        )
         assert "No active task" in reply
+
+
+class TestHandlerDM:
+    @pytest.mark.asyncio
+    async def test_dm_routes_to_dispatch(self) -> None:
+        handler, slack_mock, _ = _make_handler()
+        reply = await handler.handle_dm(user="U123", text="status", channel="D01")
+        assert reply
+        slack_mock.send_message.assert_called_once()
 
 
 class TestHandlerRegister:
@@ -184,12 +194,12 @@ class TestHandlerRegister:
 
 class TestExtractJiraKey:
     def test_extracts_key(self) -> None:
-        from src.integrations.teams.conversation_handler import _extract_jira_key
+        from src.integrations.notifications.intent import extract_jira_key
 
-        assert _extract_jira_key("retry GIFT-1234 tests") == "GIFT-1234"
-        assert _extract_jira_key("PROJ-42 is failing") == "PROJ-42"
+        assert extract_jira_key("retry GIFT-1234 tests") == "GIFT-1234"
+        assert extract_jira_key("PROJ-42 is failing") == "PROJ-42"
 
     def test_returns_none_when_missing(self) -> None:
-        from src.integrations.teams.conversation_handler import _extract_jira_key
+        from src.integrations.notifications.intent import extract_jira_key
 
-        assert _extract_jira_key("retry the tests") is None
+        assert extract_jira_key("retry the tests") is None

@@ -390,7 +390,7 @@ When introducing a new service/repo (e.g. "notification-service"):
 3. **Define OAuth2 client** in wallet-service for service-to-service auth
 4. **Add API contract types** in consuming frontends/services
 5. **Add `Dockerfile`** in the new repo for local + production
-6. **Register in dev-ai config** (`config/repositories.yaml` — add repo entry with stack, URLs)
+6. **Register in mason config** (`config/repositories.yaml` — add repo entry with stack, URLs)
 7. **Add Bitbucket Pipeline** (`bitbucket-pipelines.yml`)
 8. **Add OpenTofu module** (if needs AWS resources)
 

@@ -30,8 +30,9 @@ from src.integrations.playwright.ui_client import PlaywrightUIClient
 from src.integrations.scm.bitbucket_client import BitbucketClient
 from src.integrations.scm.github_adapter import GitHubSCMAdapter
 from src.integrations.scm.protocol import SCMClient
-from src.integrations.teams.notification_client import TeamsNotificationClient
+from src.integrations.slack.notification_client import SlackNotificationClient
 from src.schemas.repository import SCMProvider
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ class MCPManager:
         self._confluence: ConfluenceClient | None = None
         self._github: GitHubRepoClient | None = None
         self._figma: FigmaDesignClient | None = None
-        self._teams: TeamsNotificationClient | None = None
+        self._slack: SlackNotificationClient | None = None
         self._playwright: PlaywrightUIClient | None = None
         self._scm_clients: dict[SCMProvider, SCMClient] = {}
 
@@ -195,10 +196,10 @@ class MCPManager:
         return self._figma
 
     @property
-    def teams(self) -> TeamsNotificationClient:
-        if self._teams is None:
-            self._teams = TeamsNotificationClient(mcp_call=self._mcp_call)
-        return self._teams
+    def slack(self) -> SlackNotificationClient:
+        if self._slack is None:
+            self._slack = SlackNotificationClient(bot_token=get_settings().slack_bot_token)
+        return self._slack
 
     @property
     def playwright(self) -> PlaywrightUIClient:
@@ -209,7 +210,7 @@ class MCPManager:
     def scm(
         self,
         provider: SCMProvider,
-        workspace: str = "giftbee",
+        workspace: str = "",
     ) -> SCMClient:
         """Return (or lazily create) the SCM client for *provider*.
 
@@ -218,8 +219,10 @@ class MCPManager:
         provider:
             SCMProvider.BITBUCKET or SCMProvider.GITHUB.
         workspace:
-            Bitbucket workspace slug or GitHub org. Defaults to ``"giftbee"``.
+            Bitbucket workspace slug or GitHub org. Defaults to settings org.
         """
+        if not workspace:
+            workspace = get_settings().org
         if provider not in self._scm_clients:
             if provider == SCMProvider.BITBUCKET:
                 self._scm_clients[provider] = BitbucketClient(workspace=workspace)

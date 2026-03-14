@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -16,12 +18,25 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CONFIG_DIR = _PROJECT_ROOT / "config"
 
+_ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+
+
+def _expand_env_vars(value: Any) -> Any:
+    """Recursively expand ``${VAR}`` placeholders in strings, lists, and dicts."""
+    if isinstance(value, str):
+        return _ENV_VAR_RE.sub(lambda m: os.environ.get(m.group(1), m.group(0)), value)
+    if isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_vars(item) for item in value]
+    return value
+
 
 def _load_repos_yaml() -> dict[str, Any]:
     path = _CONFIG_DIR / "repositories.yaml"
     with open(path) as fh:
         data = yaml.safe_load(fh)
-    return data or {}
+    return _expand_env_vars(data) or {}
 
 
 class RepoRegistry:

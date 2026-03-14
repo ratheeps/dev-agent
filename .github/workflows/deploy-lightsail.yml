@@ -1,0 +1,43 @@
+name: Deploy to Lightsail
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Deploy action"
+        required: true
+        default: "deploy"
+        type: choice
+        options:
+          - deploy
+          - restart
+          - status
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Deploy to Lightsail
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.LIGHTSAIL_SSH_KEY }}" > ~/.ssh/mason-lightsail.pem
+          chmod 600 ~/.ssh/mason-lightsail.pem
+
+      - name: Deploy
+        env:
+          LIGHTSAIL_IP: ${{ vars.LIGHTSAIL_IP }}
+          SSH_KEY: ~/.ssh/mason-lightsail.pem
+        run: ./scripts/deploy-lightsail.sh ${{ github.event.inputs.action }}

@@ -8,7 +8,7 @@ features, match these patterns — do not introduce new patterns without good re
 
 ## 1. Action / Command Pattern
 
-**Where:** `wallet-service` backend (Laravel), `dev-ai` Python agents
+**Where:** `wallet-service` backend (Laravel), `mason` Python agents
 
 Single-responsibility action classes encapsulate one piece of business logic. Controllers stay thin
 by delegating to actions. Actions can optionally be dispatched to a queue (Spatie Queueable Action).
@@ -62,7 +62,7 @@ app(SendGiftCardEmail::class)->onQueue('emails')->execute($order, $recipient);
 
 ## 2. Repository + Interface Pattern
 
-**Where:** `wallet-service` (Laravel), `dev-ai` integration clients
+**Where:** `wallet-service` (Laravel), `mason` integration clients
 
 Define an interface for data access. Bind the Eloquent implementation in the service container.
 This enables easy testing with mocks and future swapping of implementations.
@@ -117,7 +117,7 @@ class SCMClient(Protocol):
 
 ## 3. Adapter Pattern
 
-**Where:** `dev-ai` SCM integrations — wraps MCP clients to implement a protocol
+**Where:** `mason` SCM integrations — wraps MCP clients to implement a protocol
 
 An Adapter translates the interface of an existing class (MCP client) into the interface a client
 expects (`SCMClient` protocol). This allows swapping GitHub for Bitbucket with zero changes to consumers.
@@ -159,7 +159,7 @@ class BitbucketSCMAdapter:
 
 ## 4. State Machine Pattern
 
-**Where:** `dev-ai` — `WorkflowPipeline` for the Jira-to-PR pipeline
+**Where:** `mason` — `WorkflowPipeline` for the Jira-to-PR pipeline
 
 State is explicit (enum), transitions are declared upfront, and the pipeline
 dispatches to state-specific handlers. No `if/elif` chains in the main loop.
@@ -251,7 +251,7 @@ final class Order extends Model implements Auditable
 
 ## 6. Message Bus Pattern
 
-**Where:** `dev-ai` — inter-agent communication between Orchestrator and Workers
+**Where:** `mason` — inter-agent communication between Orchestrator and Workers
 
 An in-memory async message bus built on `asyncio.Queue`. Each agent has a dedicated mailbox.
 The bus routes messages by agent ID, or broadcasts to all with `to_agent='*'`.
@@ -294,7 +294,7 @@ await bus.publish(AgentMessage(
 
 ## 7. Circuit Breaker Pattern
 
-**Where:** `dev-ai` — wraps MCP tool calls and external HTTP calls
+**Where:** `mason` — wraps MCP tool calls and external HTTP calls
 
 Prevents cascading failures. Three states: CLOSED (normal), OPEN (rejecting calls), HALF_OPEN (probing).
 
@@ -342,7 +342,7 @@ class CircuitBreaker:
 
 ## 8. Strategy Pattern
 
-**Where:** `dev-ai` — skill detection strategies; agent model selection
+**Where:** `mason` — skill detection strategies; agent model selection
 
 A family of algorithms (strategies) are interchangeable at runtime.
 
@@ -418,7 +418,7 @@ export class CheckoutPage {
 
 ## 10. Factory Pattern
 
-**Where:** `dev-ai` — `create_webhook_app()`, `get_default_registry()`, Laravel model factories
+**Where:** `mason` — `create_webhook_app()`, `get_default_registry()`, Laravel model factories
 
 Factories encapsulate object creation. They are used for:
 - Creating configured FastAPI apps with dependencies injected
@@ -431,7 +431,7 @@ def create_webhook_app(
     approval_flow: ApprovalFlow,
     conversation_handler: AgentConversationHandler,
 ) -> FastAPI:
-    app = FastAPI(title="dev-ai webhook server")
+    app = FastAPI(title="mason webhook server")
 
     @app.post("/webhooks/teams/approval")
     async def handle_approval(payload: TeamsCardActionPayload) -> dict[str, str]:

@@ -16,11 +16,13 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
+from src.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
-# Bedrock model IDs
-OPUS_MODEL_ID = "us.anthropic.claude-opus-4-6-20250609-v1:0"
-SONNET_MODEL_ID = "us.anthropic.claude-sonnet-4-6-20250514-v1:0"
+# Bedrock model IDs — read from settings for environment-level overrides
+OPUS_MODEL_ID = get_settings().opus_model_id
+SONNET_MODEL_ID = get_settings().sonnet_model_id
 
 # Cost per 1M tokens (USD) — update as pricing changes
 MODEL_COSTS: dict[str, dict[str, float]] = {

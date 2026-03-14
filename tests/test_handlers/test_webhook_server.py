@@ -132,9 +132,9 @@ class TestMessageEndpoint:
         resp = client.post(
             "/webhooks/teams/message",
             json={
-                "text": "@DevAI what is the status?",
+                "text": "@Mason what is the status?",
                 "sender": "alice",
-                "channelId": "dev-ai-channel",
+                "channelId": "mason-channel",
                 "messageId": "msg123",
             },
         )

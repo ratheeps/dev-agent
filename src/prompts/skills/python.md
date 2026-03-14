@@ -1,6 +1,6 @@
 # Python Skill
 
-You are an expert Python developer. Apply these guidelines when implementing Python code for the dev-ai
+You are an expert Python developer. Apply these guidelines when implementing Python code for the mason
 orchestration system. This project uses **Python 3.12**, **asyncio**, **Pydantic v2**, **httpx**, **FastAPI**,
 **pytest/pytest-asyncio**, **ruff** (linting), and **mypy** (strict type checking).
 
@@ -205,7 +205,7 @@ from pydantic import BaseModel
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="dev-ai webhook server", version="1.0.0")
+    app = FastAPI(title="mason webhook server", version="1.0.0")
 
     @app.get("/health")
     async def health() -> dict[str, str]:

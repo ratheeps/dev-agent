@@ -1,8 +1,8 @@
-"""Human-in-the-loop approval flow via Microsoft Teams.
+"""Human-in-the-loop approval flow — platform-agnostic.
 
-Sends approval requests to a Teams channel and waits for human response
-before allowing the workflow to proceed. Uses asyncio.Event for efficient
-blocking — no polling loop.
+Sends approval requests via any ``NotificationClient`` and waits for human
+response before allowing the workflow to proceed. Uses asyncio.Event for
+efficient blocking — no polling loop.
 """
 
 from __future__ import annotations
@@ -16,7 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from src.integrations.teams.notification_client import TeamsNotificationClient
+from src.integrations.notifications.protocol import NotificationClient
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +32,13 @@ class ApprovalStatus(str, Enum):
 
 
 class ApprovalRequest(BaseModel):
-    """An approval request sent to Teams."""
+    """An approval request sent to a notification platform."""
 
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     title: str
     description: str
-    requester: str = "dev-ai"
-    channel_id: str = "dev-ai-approvals"
+    requester: str = "mason"
+    channel_id: str = ""
     status: ApprovalStatus = ApprovalStatus.PENDING
     response_by: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -64,18 +65,18 @@ class _PendingApproval:
 class ApprovalFlow:
     """Manages the human-in-the-loop approval workflow.
 
-    Sends a structured approval request to Teams, then waits on an
-    asyncio.Event. The event is set by ``resolve()`` which is called
-    by the webhook server when a human clicks Approve/Reject.
+    Sends a structured approval request via the provided notification client,
+    then waits on an asyncio.Event. The event is set by ``resolve()`` which is
+    called by the webhook server when a human clicks Approve/Reject.
     """
 
     def __init__(
         self,
         *,
-        teams_client: TeamsNotificationClient,
+        notification_client: NotificationClient,
         timeout: int = DEFAULT_APPROVAL_TIMEOUT,
     ) -> None:
-        self._teams = teams_client
+        self._notifier = notification_client
         self._timeout = timeout
         self._pending: dict[str, _PendingApproval] = {}
 
@@ -85,13 +86,15 @@ class ApprovalFlow:
         trigger: ApprovalTrigger,
         title: str,
         description: str,
-        channel_id: str = "dev-ai-approvals",
+        channel_id: str = "",
     ) -> ApprovalRequest:
         """Send an approval request and wait (non-polling) for a human response.
 
         Returns the resolved ApprovalRequest with final status.
         The coroutine is suspended until ``resolve()`` is called or timeout.
         """
+        if not channel_id:
+            channel_id = get_settings().slack_approval_channel
         request = ApprovalRequest(
             title=title,
             description=description,
@@ -100,7 +103,7 @@ class ApprovalFlow:
         pending = _PendingApproval(request)
         self._pending[request.id] = pending
 
-        await self._teams.send_approval_request(
+        await self._notifier.send_approval_request(
             channel_id=channel_id,
             title=f"[{trigger.value}] {title}",
             description=description,
@@ -120,7 +123,7 @@ class ApprovalFlow:
             request.status = ApprovalStatus.TIMED_OUT
             request.resolved_at = datetime.now(timezone.utc)
             logger.warning("ApprovalFlow: request %s timed out after %ds", request.id, self._timeout)
-            await self._teams.send_message(
+            await self._notifier.send_message(
                 channel_id=channel_id,
                 message=f"Approval request **{title}** timed out after {self._timeout // 60} minutes.",
             )
@@ -165,4 +168,3 @@ class ApprovalFlow:
     @property
     def pending_count(self) -> int:
         return len(self._pending)
-

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Trigger the Dev-AI pipeline for a Jira ticket",
+        description="Trigger the Mason pipeline for a Jira ticket",
     )
     parser.add_argument(
         "--ticket",

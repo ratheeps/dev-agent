@@ -1,16 +1,21 @@
 """AgentCore Runtime entrypoint.
 
 This module is the main entry point when the agent system is deployed
-on AWS Bedrock AgentCore Runtime. It initializes the agent infrastructure,
-connects to DynamoDB memory, and starts listening for incoming tasks.
+on AWS Bedrock AgentCore Runtime or as an ECS worker. It initializes
+the agent infrastructure, connects to DynamoDB memory, and processes
+tasks from SQS.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import signal
 from typing import Any
+
+import boto3
 
 from src.agents.bedrock_client import BedrockClient
 from src.agents.claude_sdk_client import ClaudeSDKClient
@@ -176,6 +181,79 @@ class AgentCoreEntrypoint:
             "error": context.error_info or None,
         }
 
+    async def poll_sqs(self) -> None:
+        """Long-poll SQS for task messages and process them.
+
+        Runs until the shutdown event is set. Each message is expected
+        to contain a JSON body with an 'issue_key' field.
+        """
+        queue_url = os.environ.get("SQS_QUEUE_URL", "")
+        if not queue_url:
+            logger.error("SQS_QUEUE_URL not set — cannot poll for tasks")
+            return
+
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        sqs = boto3.client("sqs", region_name=region)
+        logger.info("Starting SQS polling loop (queue=%s)", queue_url)
+
+        while not self._shutdown_event.is_set():
+            try:
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: sqs.receive_message(
+                        QueueUrl=queue_url,
+                        MaxNumberOfMessages=1,
+                        WaitTimeSeconds=20,
+                        MessageAttributeNames=["All"],
+                    ),
+                )
+
+                messages = response.get("Messages", [])
+                if not messages:
+                    continue
+
+                for message in messages:
+                    receipt_handle = message["ReceiptHandle"]
+                    body = json.loads(message["Body"])
+                    issue_key = body.get("issue_key", "")
+
+                    if not issue_key:
+                        logger.warning(
+                            "SQS message missing issue_key, skipping: %s",
+                            message["MessageId"],
+                        )
+                        await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda rh=receipt_handle: sqs.delete_message(
+                                QueueUrl=queue_url, ReceiptHandle=rh,
+                            ),
+                        )
+                        continue
+
+                    logger.info("Processing task from SQS: %s", issue_key)
+                    try:
+                        result = await self.handle_task(issue_key)
+                        logger.info(
+                            "Task completed: %s — state=%s",
+                            issue_key,
+                            result["final_state"],
+                        )
+                    except Exception:
+                        logger.exception("Task failed: %s", issue_key)
+
+                    # Delete message after processing (success or failure)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda rh=receipt_handle: sqs.delete_message(
+                            QueueUrl=queue_url, ReceiptHandle=rh,
+                        ),
+                    )
+
+            except Exception:
+                if not self._shutdown_event.is_set():
+                    logger.exception("Error in SQS polling loop")
+                    await asyncio.sleep(5)
+
     async def shutdown(self) -> None:
         """Gracefully shut down all components."""
         logger.info("Shutting down AgentCore entrypoint")
@@ -199,3 +277,31 @@ class HealthCheck:
             "status": "healthy",
             "initialized": self._entrypoint._orchestrator is not None,
         }
+
+
+async def _run_worker() -> None:
+    """Main async entry point for the SQS worker process."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    )
+
+    entrypoint = AgentCoreEntrypoint()
+    loop = asyncio.get_event_loop()
+
+    # Handle graceful shutdown signals
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(entrypoint.shutdown()))
+
+    await entrypoint.initialize()
+    await entrypoint.poll_sqs()
+    await entrypoint.shutdown()
+
+
+def main() -> None:
+    """Synchronous entry point for `python -m src.runtime.entrypoint`."""
+    asyncio.run(_run_worker())
+
+
+if __name__ == "__main__":
+    main()

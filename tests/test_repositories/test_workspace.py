@@ -90,7 +90,7 @@ class TestWorkspaceManagerBranching:
             manager = WorkspaceManager()
             branch = await manager.create_branch(repo_cfg, "GIFT-1234")
 
-        assert branch == "dev-ai/GIFT-1234"
+        assert branch == "mason/GIFT-1234"
         # Should have called checkout -b
         checkout_calls = [a for a in call_args if "checkout" in a]
         assert any("-b" in c for c in checkout_calls)
@@ -103,14 +103,14 @@ class TestWorkspaceManagerBranching:
 
         async def fake_git(args: list[str], cwd: Path, **kwargs: object) -> tuple[int, str, str]:
             if args[0] == "branch" and "--list" in args:
-                return 0, "  dev-ai/GIFT-1234", ""
+                return 0, "  mason/GIFT-1234", ""
             return 0, "", ""
 
         with patch("src.repositories.workspace._run_git", side_effect=fake_git):
             manager = WorkspaceManager()
             branch = await manager.create_branch(repo_cfg, "GIFT-1234")
 
-        assert branch == "dev-ai/GIFT-1234"
+        assert branch == "mason/GIFT-1234"
 
 
 class TestWorkspaceManagerCommit:

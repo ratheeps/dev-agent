@@ -13,7 +13,7 @@ GiftBee runs on two environments:
 |-------------|---------------|
 | **Local development** | Docker Compose (`local-infra/docker-compose.yml`) |
 | **Production (wallet-service)** | AWS — Bref/Lambda + RDS + SQS + S3 + CloudFront |
-| **Dev-AI agents** | AWS Bedrock AgentCore + DynamoDB + API Gateway |
+| **Mason agents** | AWS Bedrock AgentCore + DynamoDB + API Gateway |
 
 ---
 
@@ -256,9 +256,9 @@ GeneratePDFReport::dispatch($params)->onQueue('reports');
 
 ---
 
-## Dev-AI Agent Infrastructure (AWS Bedrock)
+## Mason Agent Infrastructure (AWS Bedrock)
 
-The `dev-ai` orchestration system runs on AWS Bedrock AgentCore with supporting services.
+The `mason` orchestration system runs on AWS Bedrock AgentCore with supporting services.
 
 ### Architecture Diagram
 
@@ -352,9 +352,9 @@ aws_iam_role "worker":        # Sonnet model invocation
 
 ```hcl
 # Log groups (30-day retention)
-aws_cloudwatch_log_group "/dev-ai/orchestrator"
-aws_cloudwatch_log_group "/dev-ai/worker"
-aws_cloudwatch_log_group "/dev-ai/webhook"
+aws_cloudwatch_log_group "/mason/orchestrator"
+aws_cloudwatch_log_group "/mason/worker"
+aws_cloudwatch_log_group "/mason/webhook"
 
 # Cost alarm — alert if Bedrock invocations exceed threshold
 aws_cloudwatch_metric_alarm "bedrock_cost":
@@ -464,7 +464,7 @@ pipelines:
 // APP_KEY: arn:aws:secretsmanager:ap-southeast-2:123456789:secret:giftbee/app-key
 ```
 
-### Dev-AI Secrets
+### Mason Secrets
 
 ```python
 # In Python — read from environment (set by Bedrock AgentCore / Secrets Manager)
@@ -485,7 +485,7 @@ FIGMA_TOKEN      = os.environ["FIGMA_ACCESS_TOKEN"]
 All services emit structured JSON logs to CloudWatch:
 
 ```python
-# dev-ai — Python structured logging
+# mason — Python structured logging
 import logging
 import json
 
@@ -570,7 +570,7 @@ docker compose exec wallet-service php artisan migrate:fresh --seed
 ### Deploy to staging
 
 ```bash
-# dev-ai infra
+# mason infra
 ./scripts/deploy.sh staging apply
 
 # wallet-service (from its own repo)

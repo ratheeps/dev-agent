@@ -10,9 +10,10 @@ from typing import TYPE_CHECKING, Any
 from src.agents.orchestrator import Orchestrator
 from src.integrations.mcp_manager import MCPManager
 from src.integrations.scm.github_adapter import GitHubSCMAdapter
-from src.integrations.teams.approval_flow import ApprovalFlow, ApprovalTrigger
+from src.integrations.notifications.approval_flow import ApprovalFlow, ApprovalTrigger
 from src.memory.client import MemoryClient
 from src.schemas.task import Task, TaskStatus
+from src.settings import get_settings
 from src.workflows.code_implementation import CodeImplementationHandler
 from src.workflows.jira_ingestion import JiraIngestionHandler
 from src.workflows.pr_creation import PRCreationHandler
@@ -137,7 +138,7 @@ class WorkflowPipeline:
         return await self.run()
 
     def inject_feedback(self, feedback: str) -> None:
-        """Inject developer feedback (from Teams @mention) into the pipeline context.
+        """Inject developer feedback (from Slack @mention) into the pipeline context.
 
         The feedback is queued in `context.feedback_queue` and consumed by the
         orchestrator/worker on their next iteration.
@@ -191,7 +192,7 @@ class WorkflowPipeline:
 
         # Create feature branch
         await self._mcp.github.create_branch(
-            owner="giftbee",
+            owner=get_settings().org,
             repo=self._context.task.context.get("repository", ""),
             branch=branch_name,
             from_ref="main",
@@ -248,7 +249,7 @@ class WorkflowPipeline:
     async def _handle_approval_gate(self) -> None:
         """Request human approval before creating the PR.
 
-        Pauses the pipeline until a Teams card action (or @mention) resolves
+        Pauses the pipeline until a Slack button action (or @mention) resolves
         the approval. On rejection, re-routes back to IMPLEMENTING so the
         agent can re-plan based on the rejection feedback.
         """
@@ -267,14 +268,14 @@ class WorkflowPipeline:
             trigger=ApprovalTrigger.PRE_MERGE,
             title=f"PR ready for {self._jira_key}: {task_title}",
             description=(
-                f"Dev-AI has finished implementing and all tests pass.\n\n"
+                f"Mason has finished implementing and all tests pass.\n\n"
                 f"**Repo**: {repo}\n"
                 f"**Branch**: {self._context.branch_name}\n\n"
                 "Please review and approve to create the PR, or reject to request changes."
             ),
         )
 
-        from src.integrations.teams.approval_flow import ApprovalStatus
+        from src.integrations.notifications.approval_flow import ApprovalStatus
 
         if approval.status == ApprovalStatus.APPROVED:
             logger.info("Pipeline: approval granted by %s", approval.response_by)
@@ -308,9 +309,9 @@ class WorkflowPipeline:
             task=self._context.task,
             plan=self._context.plan,
             branch=self._context.branch_name,
-            scm_client=GitHubSCMAdapter(client=self._mcp.github, org="giftbee"),
+            scm_client=GitHubSCMAdapter(client=self._mcp.github, org=get_settings().org),
             jira_client=self._mcp.jira,
-            teams_client=self._mcp.teams,
+            slack_client=self._mcp.slack,
         )
         self._context.pr_url = pr_result.get("pr_url", "")
         self._context.pr_number = pr_result.get("pr_number", 0)
@@ -324,10 +325,10 @@ class WorkflowPipeline:
         logger.info("Pipeline: monitoring review for PR %s", self._context.pr_url)
         review_result = await self._review_loop.monitor_review(
             pr_number=self._context.pr_number,
-            owner="giftbee",
+            owner=get_settings().org,
             repo=self._context.task.context.get("repository", "") if self._context.task else "",
             github_client=self._mcp.github,
-            teams_client=self._mcp.teams,
+            slack_client=self._mcp.slack,
         )
 
         if review_result.get("approved"):

@@ -7,6 +7,7 @@ from typing import Any
 
 from src.integrations.mcp_manager import MCPManager
 from src.schemas.task import SubTask
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class CodeImplementationHandler:
         self,
         subtask: SubTask,
         context: dict[str, Any],
-        owner: str = "giftbee",
+        owner: str = "",
         repo: str = "",
         branch: str = "",
     ) -> dict[str, Any]:
@@ -37,6 +38,9 @@ class CodeImplementationHandler:
 
         Returns a result dict with changed_files, test_result, commit_sha.
         """
+        if not owner:
+            owner = get_settings().org
+
         logger.info(
             "CodeImplementation: implementing subtask %s on branch %s",
             subtask.id,
@@ -89,7 +93,7 @@ class CodeImplementationHandler:
         logger.info("CodeImplementation: running tests for %d files", len(file_paths))
 
         result = await self._mcp.github.push_file(
-            owner="giftbee",
+            owner=get_settings().org,
             repo="",
             path="",
             content="",

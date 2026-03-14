@@ -94,3 +94,44 @@ def log_state_transition(
         target=workflow_id,
         details={"condition": condition},
     )
+
+
+def log_slack_event(
+    *,
+    event_type: str,
+    user_id: str = "",
+    channel_id: str = "",
+    text_preview: str = "",
+    success: bool = True,
+    error: str = "",
+) -> AuditEntry:
+    """Audit an incoming Slack event (mention, DM, or approval callback).
+
+    Parameters
+    ----------
+    event_type:
+        One of: ``app_mention``, ``dm``, ``approval_approved``,
+        ``approval_rejected``, ``signature_invalid``.
+    user_id:
+        Slack user ID of the sender / approver.
+    channel_id:
+        Slack channel or DM channel ID.
+    text_preview:
+        First 100 chars of the message text (for debugging, not PII logging).
+    success:
+        False when e.g. signature verification fails.
+    error:
+        Error description when success=False.
+    """
+    return log_action(
+        event_type=f"slack.{event_type}",
+        agent_id="webhook",
+        action=event_type,
+        target=channel_id,
+        details={
+            "user_id": user_id,
+            "text_preview": text_preview[:100],
+        },
+        success=success,
+        error=error,
+    )
