@@ -25,14 +25,14 @@ class IntentType(str, Enum):
 
 # Pattern-based intent detection — keyword matching without LLM call overhead
 _INTENT_PATTERNS: list[tuple[IntentType, list[str]]] = [
-    (IntentType.STATUS_QUERY, ["status", "what are you", "what's happening", "progress", "where are you"]),
+    (IntentType.STATUS_QUERY, ["status", "what are you", "what's happening", "progress", "where are you"]),  # noqa: E501
     (IntentType.APPROVE, ["approve", "approved", "go ahead", "lgtm", "ship it", "looks good"]),
-    (IntentType.REJECT, ["reject", "rejected", "stop this", "don't proceed", "wrong approach", "change this"]),
+    (IntentType.REJECT, ["reject", "rejected", "stop this", "don't proceed", "wrong approach", "change this"]),  # noqa: E501
     (IntentType.RETRY, ["retry", "try again", "re-run", "rerun", "run again"]),
     (IntentType.STOP, ["stop", "pause", "halt", "wait", "hold on"]),
     (IntentType.EXPLAIN, ["why", "explain", "how did you", "reason", "rationale"]),
     (IntentType.DEBUG_HELP, ["failing", "broken", "error", "fix", "debug", "not working", "issue"]),
-    (IntentType.CLARIFY, ["use ", "instead", "should be", "prefer", "change to", "update approach"]),
+    (IntentType.CLARIFY, ["use ", "instead", "should be", "prefer", "change to", "update approach"]),  # noqa: E501
 ]
 
 

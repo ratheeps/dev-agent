@@ -10,11 +10,22 @@ import logging
 import uuid
 from typing import Any
 
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from src.resilience.circuit_breaker import CircuitBreaker
+from src.resilience.rate_limiter import TokenBucketRateLimiter
 from src.schemas.slack import SlackApprovalResponse, SlackMessageResponse
 
 logger = logging.getLogger(__name__)
+
+
+class SlackClientError(Exception):
+    """Raised when a Slack API call fails after circuit-breaker / rate-limit checks."""
+
+    def __init__(self, message: str, *, api_error: SlackApiError | None = None) -> None:
+        super().__init__(message)
+        self.api_error = api_error
 
 
 class SlackNotificationClient:
@@ -22,14 +33,25 @@ class SlackNotificationClient:
 
     Satisfies the ``NotificationClient`` protocol — no subclassing required.
 
+    Includes a per-instance circuit breaker and rate limiter so that
+    transient Slack API failures degrade gracefully rather than cascading.
+
     Parameters
     ----------
     bot_token:
         Slack bot OAuth token (xoxb-...). Required for all API calls.
+    requests_per_minute:
+        Outgoing API call rate limit (default: 30 rpm).
     """
 
-    def __init__(self, bot_token: str) -> None:
+    def __init__(self, bot_token: str, *, requests_per_minute: int = 30) -> None:
         self._client = AsyncWebClient(token=bot_token)
+        self._circuit = CircuitBreaker(service="slack", failure_threshold=5, recovery_timeout=60.0)
+        self._rate_limiter = TokenBucketRateLimiter(
+            service="slack",
+            max_tokens=float(requests_per_minute),
+            refill_rate=float(requests_per_minute) / 60.0,
+        )
 
     # ------------------------------------------------------------------
     # Channel messages
@@ -49,11 +71,19 @@ class SlackNotificationClient:
         message:
             Plain-text message body. Supports Slack mrkdwn formatting.
         """
-        resp = await self._client.chat_postMessage(
-            channel=channel_id,
-            text=message,
-            mrkdwn=True,
-        )
+        await self._rate_limiter.acquire()
+        try:
+            resp = await self._circuit.call(
+                self._client.chat_postMessage,
+                channel=channel_id,
+                text=message,
+                mrkdwn=True,
+            )
+        except SlackApiError as exc:
+            logger.error("Slack send_message failed channel=%s: %s", channel_id, exc)
+            raise SlackClientError(
+                f"Failed to send message to {channel_id}", api_error=exc
+            ) from exc
         return _parse_message_response(resp.data)
 
     # ------------------------------------------------------------------
@@ -92,13 +122,21 @@ class SlackNotificationClient:
             title, description, resolved_callback_id, extra_facts=extra_facts
         )
 
-        resp = await self._client.chat_postMessage(
-            channel=channel_id,
-            text=f"🤖 Approval Required: {title}",  # fallback for notifications
-            blocks=blocks,
-        )
+        await self._rate_limiter.acquire()
+        try:
+            resp = await self._circuit.call(
+                self._client.chat_postMessage,
+                channel=channel_id,
+                text=f"🤖 Approval Required: {title}",
+                blocks=blocks,
+            )
+        except SlackApiError as exc:
+            logger.error("Slack send_approval_request failed channel=%s: %s", channel_id, exc)
+            raise SlackClientError(
+                f"Failed to send approval request to {channel_id}", api_error=exc
+            ) from exc
 
-        data = resp.data if hasattr(resp, "data") else {}
+        data = resp.data if isinstance(resp.data, dict) else {}
         return SlackApprovalResponse(
             ok=bool(data.get("ok", True)),
             ts=str(data.get("ts", "")),
@@ -127,14 +165,27 @@ class SlackNotificationClient:
         message:
             Message body.
         """
-        conv = await self._client.conversations_open(users=user_id)
-        channel_id = str((conv.data or {}).get("channel", {}).get("id", user_id))
+        await self._rate_limiter.acquire()
+        try:
+            conv = await self._circuit.call(self._client.conversations_open, users=user_id)
+        except SlackApiError as exc:
+            logger.error("Slack conversations_open failed user=%s: %s", user_id, exc)
+            raise SlackClientError(f"Failed to open DM with {user_id}", api_error=exc) from exc
 
-        resp = await self._client.chat_postMessage(
-            channel=channel_id,
-            text=message,
-            mrkdwn=True,
-        )
+        conv_data = conv.data if isinstance(conv.data, dict) else {}
+        channel_id = str(conv_data.get("channel", {}).get("id", user_id))
+
+        await self._rate_limiter.acquire()
+        try:
+            resp = await self._circuit.call(
+                self._client.chat_postMessage,
+                channel=channel_id,
+                text=message,
+                mrkdwn=True,
+            )
+        except SlackApiError as exc:
+            logger.error("Slack DM send failed user=%s: %s", user_id, exc)
+            raise SlackClientError(f"Failed to send DM to {user_id}", api_error=exc) from exc
         return _parse_message_response(resp.data)
 
     # ------------------------------------------------------------------
@@ -158,12 +209,23 @@ class SlackNotificationClient:
         message:
             Reply text (mrkdwn supported).
         """
-        resp = await self._client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_id,
-            text=message,
-            mrkdwn=True,
-        )
+        await self._rate_limiter.acquire()
+        try:
+            resp = await self._circuit.call(
+                self._client.chat_postMessage,
+                channel=channel_id,
+                thread_ts=thread_id,
+                text=message,
+                mrkdwn=True,
+            )
+        except SlackApiError as exc:
+            logger.error(
+                "Slack send_threaded_reply failed channel=%s thread=%s: %s",
+                channel_id, thread_id, exc,
+            )
+            raise SlackClientError(
+                f"Failed to reply in thread {thread_id}", api_error=exc
+            ) from exc
         return _parse_message_response(resp.data)
 
     # ------------------------------------------------------------------
@@ -197,11 +259,19 @@ class SlackNotificationClient:
             cost_usd=cost_usd,
             progress_pct=progress_pct,
         )
-        resp = await self._client.chat_postMessage(
-            channel=channel_id,
-            text=f"🤖 Mason Status: {jira_key} — {current_state}",
-            blocks=blocks,
-        )
+        await self._rate_limiter.acquire()
+        try:
+            resp = await self._circuit.call(
+                self._client.chat_postMessage,
+                channel=channel_id,
+                text=f"🤖 Mason Status: {jira_key} — {current_state}",
+                blocks=blocks,
+            )
+        except SlackApiError as exc:
+            logger.error("Slack send_status_card failed channel=%s: %s", channel_id, exc)
+            raise SlackClientError(
+                f"Failed to send status card to {channel_id}", api_error=exc
+            ) from exc
         return _parse_message_response(resp.data)
 
     # ------------------------------------------------------------------
@@ -219,6 +289,7 @@ class SlackNotificationClient:
         """Replace an approval message's buttons with the final result.
 
         Called after a user clicks Approve or Reject to prevent double-clicks.
+        Best-effort — logs but does not raise on failure.
         """
         result_emoji = "✅" if approved else "❌"
         result_text = "Approved" if approved else "Rejected"
@@ -241,14 +312,16 @@ class SlackNotificationClient:
             },
         ]
 
+        await self._rate_limiter.acquire()
         try:
-            await self._client.chat_update(
+            await self._circuit.call(
+                self._client.chat_update,
                 channel=channel_id,
                 ts=message_ts,
                 text=f"{result_emoji} {result_text}{by_text}: {title}",
                 blocks=blocks,
             )
-        except Exception:
+        except (SlackApiError, Exception):
             logger.exception("Failed to update approval message ts=%s", message_ts)
 
 

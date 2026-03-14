@@ -12,7 +12,6 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -122,10 +121,15 @@ class ApprovalFlow:
         except asyncio.TimeoutError:
             request.status = ApprovalStatus.TIMED_OUT
             request.resolved_at = datetime.now(timezone.utc)
-            logger.warning("ApprovalFlow: request %s timed out after %ds", request.id, self._timeout)
+            logger.warning(
+                "ApprovalFlow: request %s timed out after %ds", request.id, self._timeout
+            )
             await self._notifier.send_message(
                 channel_id=channel_id,
-                message=f"Approval request **{title}** timed out after {self._timeout // 60} minutes.",
+                message=(
+                    f"Approval request **{title}** timed out "
+                    f"after {self._timeout // 60} minutes."
+                ),
             )
         finally:
             self._pending.pop(request.id, None)

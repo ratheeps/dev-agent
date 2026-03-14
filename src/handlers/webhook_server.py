@@ -6,13 +6,19 @@ POST /slack/events          All Slack events (mentions, DMs, button actions)
                             handled by Slack Bolt via AsyncSlackRequestHandler.
 GET  /approvals/{id}        Query approval request status
 GET  /health                Health check
+
+Production entrypoint
+---------------------
+``app_factory()`` is the zero-argument factory consumed by uvicorn's
+``--factory`` flag. It wires all Slack dependencies and returns the ASGI app.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -30,14 +36,71 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# App factory
+# Production factory (zero-arg — consumed by uvicorn --factory)
+# ---------------------------------------------------------------------------
+
+
+def app_factory() -> FastAPI:
+    """Create the fully-wired production FastAPI application.
+
+    Called by uvicorn as a factory (no arguments). Reads configuration from
+    environment variables via ``MasonSettings``.
+
+    Raises ``RuntimeError`` if required Slack credentials are missing so the
+    container fails fast at startup rather than crashing on the first request.
+    """
+    from src.integrations.notifications.approval_flow import ApprovalFlow
+    from src.integrations.slack.approval_adapter import SlackApprovalAdapter
+    from src.integrations.slack.bolt_app import create_bolt_app, create_bolt_handler
+    from src.integrations.slack.conversation_handler import SlackConversationHandler
+    from src.integrations.slack.notification_client import SlackNotificationClient
+    from src.settings import get_settings
+
+    settings = get_settings()
+
+    if not settings.slack_bot_token:
+        raise RuntimeError(
+            "MASON_SLACK_BOT_TOKEN is not set. "
+            "Set it in .env or as an environment variable before starting."
+        )
+    if not settings.slack_signing_secret:
+        raise RuntimeError(
+            "MASON_SLACK_SIGNING_SECRET is not set. "
+            "Set it in .env or as an environment variable before starting."
+        )
+
+    slack_client = SlackNotificationClient(bot_token=settings.slack_bot_token)
+    approval_flow = ApprovalFlow(notification_client=slack_client)
+    conversation_handler = SlackConversationHandler(
+        slack_client=slack_client,
+        approval_flow=approval_flow,
+    )
+    approval_adapter = SlackApprovalAdapter(
+        slack_client=slack_client,
+        approval_flow=approval_flow,
+    )
+    bolt_app = create_bolt_app(
+        slack_client=slack_client,
+        conversation_handler=conversation_handler,
+        approval_adapter=approval_adapter,
+    )
+    bolt_handler = create_bolt_handler(bolt_app)
+
+    return create_webhook_app(
+        approval_flow=approval_flow,
+        bolt_handler=bolt_handler,
+    )
+
+
+# ---------------------------------------------------------------------------
+# App factory (parameterized — used in tests and programmatic construction)
 # ---------------------------------------------------------------------------
 
 
 def create_webhook_app(
     *,
-    approval_flow: "ApprovalFlow",
-    bolt_handler: "AsyncSlackRequestHandler",
+    approval_flow: ApprovalFlow,
+    bolt_handler: AsyncSlackRequestHandler,
 ) -> FastAPI:
     """Create and configure the FastAPI webhook application.
 
@@ -122,3 +185,4 @@ def create_webhook_app(
         )
 
     return app
+

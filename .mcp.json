@@ -15,16 +15,6 @@
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PAT}"
       }
     },
-    "teams": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["./node_modules/@mcp/teams-connector/dist/index.js"],
-      "env": {
-        "MICROSOFT_APP_ID": "${MS_APP_ID}",
-        "MICROSOFT_APP_PASSWORD": "${MS_APP_PASSWORD}",
-        "MICROSOFT_TENANT_ID": "${MS_TENANT_ID}"
-      }
-    },
     "playwright": {
       "type": "stdio",
       "command": "npx",

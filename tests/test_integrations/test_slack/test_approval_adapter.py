@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.integrations.slack.approval_adapter import SlackApprovalAdapter
 from src.integrations.notifications.approval_flow import (
     ApprovalRequest,
     _PendingApproval,
 )
+from src.integrations.slack.approval_adapter import SlackApprovalAdapter
 
 
 def _make_adapter() -> tuple[SlackApprovalAdapter, MagicMock, MagicMock]:

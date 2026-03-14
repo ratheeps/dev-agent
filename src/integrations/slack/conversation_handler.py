@@ -12,6 +12,7 @@ from typing import Any
 
 from src.integrations.notifications.intent import IntentType, detect_intent, extract_jira_key
 from src.integrations.slack.notification_client import SlackNotificationClient
+from src.security.input_sanitizer import sanitize_slack_text
 from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -57,23 +58,8 @@ class SlackConversationHandler:
         thread_ts: str = "",
         ts: str = "",
     ) -> str:
-        """Process a Slack @mention and return the reply text.
-
-        Detects intent, dispatches accordingly, and posts a threaded reply.
-
-        Parameters
-        ----------
-        user:
-            Slack user ID of the sender.
-        text:
-            Clean message text (already stripped of <@BOTID>).
-        channel:
-            Channel ID where the mention occurred.
-        thread_ts:
-            Parent thread ts if already in a thread.
-        ts:
-            Message ts (used as thread_ts for replies if not already in thread).
-        """
+        """Process a Slack @mention and return the reply text."""
+        text = sanitize_slack_text(text)
         intent = detect_intent(text)
 
         logger.info(
@@ -107,10 +93,8 @@ class SlackConversationHandler:
         text: str,
         channel: str,
     ) -> str:
-        """Process a direct message to the bot (non-mention DM).
-
-        Uses the same intent dispatch as @mentions, replies in the same DM channel.
-        """
+        """Process a direct message to the bot (non-mention DM)."""
+        text = sanitize_slack_text(text)
         intent = detect_intent(text)
 
         logger.info(
